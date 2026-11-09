@@ -131,5 +131,5 @@ The icon (`src/Spartanpad/res/`) is a capture of Master Chief from Halo, used un
 > Halo © Microsoft Corporation. Spartanpad was created under Microsoft's "Game Content Usage
 > Rules" using assets from Halo, and it is not endorsed by or affiliated with Microsoft.
 
-The same terms follow the icon into any fork: it may not be sold or used to earn money, and it is
+The same terms follow the icon into any fork: it (the icon) may not be sold or used to earn money, and it is
 not relicensed under MIT.
