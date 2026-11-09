@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Spartanpad;
@@ -15,8 +16,12 @@ namespace Spartanpad.Tests;
 
 public class TestAppBuilder
 {
-    public static AppBuilder BuildAvaloniaApp() => AppBuilder.Configure<App>()
-        .UseHeadless(new AvaloniaHeadlessPlatformOptions());
+    public static AppBuilder BuildAvaloniaApp()
+    {
+        // The menu entry offer is a dialog after the first save; the tests that want it turn it on.
+        App.OfferMenuEntry = false;
+        return AppBuilder.Configure<App>().UseHeadless(new AvaloniaHeadlessPlatformOptions());
+    }
 }
 
 /// <summary>The window driven headlessly: no display, real controls.</summary>
@@ -29,6 +34,80 @@ public class MainWindowTests
         window.Show();
         window.Editor.Focus();
         return (window, dir);
+    }
+
+    /// <summary>
+    /// The Linux menu entry is offered once, after the first save, and the answer is kept. Driven
+    /// through the real dialog: the offer is awaited inside the save.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData("Add it", true)]
+    [InlineData("No thanks", false)]
+    public async Task TheMenuEntryIsOfferedOnceAfterTheFirstSaveAndTheAnswerIsKept(string button, bool wanted)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        (MainWindow window, TempDir dir) = Open();
+        using (dir)
+        {
+            App.OfferMenuEntry = true;
+            App.MenuEntryDataHome = dir.File("data");
+            try
+            {
+                string path = dir.File("note.txt");
+                File.WriteAllText(path, "seed");
+                Assert.True(await window.OpenPathAsync(path, null, createIfMissing: false));
+                window.KeyTextInput("!");
+
+                Task<bool> save = window.SaveAsync();
+                Dispatcher.UIThread.RunJobs();
+                var offer = Assert.Single(window.OwnedWindows.OfType<Spartanpad.Views.MessageDialog>());
+                Assert.Contains("Add Spartanpad to your desktop's menu?", offer.MessageText.Text);
+                // The file is on disk before the question is asked, whatever the answer turns out to be.
+                Assert.Equal("!seed", File.ReadAllText(path));
+                Assert.False(window.Document.IsDirty);
+                Button choice = offer.Buttons.Children.OfType<Button>().Single(b => (string)b.Content! == button);
+                choice.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Assert.True(await save);
+                Assert.Equal("!seed", File.ReadAllText(path));
+
+                string entry = dir.File(Path.Combine("data", "applications", "spartanpad.desktop"));
+                Assert.Equal(wanted, File.Exists(entry));
+                Assert.Equal(wanted, File.Exists(dir.File(Path.Combine("data", "icons", "hicolor", "256x256", "apps", "spartanpad.png"))));
+                if (wanted)
+                {
+                    Assert.Equal(DesktopEntry.Text(Environment.ProcessPath!), File.ReadAllText(entry));
+                    Assert.Equal("Spartanpad is in your menu.", window.StatusMessage.Text);
+                }
+
+                // Kept at once, not at exit, and not asked a second time.
+                Assert.Equal(wanted, SettingsStore.Load(dir.File("settings.json")).MenuEntry);
+                Task<bool> again = window.SaveAsync();
+                Dispatcher.UIThread.RunJobs();
+                Assert.Empty(window.OwnedWindows);
+                Assert.True(await again);
+            }
+            finally
+            {
+                App.OfferMenuEntry = false;
+                App.MenuEntryDataHome = DesktopEntry.DefaultDataHome;
+                window.Close();
+            }
+        }
+    }
+
+    [AvaloniaFact]
+    public void TheWindowCarriesTheIcon()
+    {
+        (MainWindow window, TempDir dir) = Open();
+        using (dir)
+        {
+            Assert.NotNull(window.Icon);
+            window.Close();
+        }
     }
 
     [AvaloniaFact]

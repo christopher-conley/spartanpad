@@ -34,6 +34,7 @@ public partial class MainWindow : Window
     private int _zoomPercent = Zoom.Default;
     private bool _loadingText;
     private bool _closeConfirmed;
+    private bool _menuEntryOffered;
     private FindDialog? _findDialog;
     private ReplaceDialog? _replaceDialog;
 
@@ -50,6 +51,7 @@ public partial class MainWindow : Window
         _document = new TextDocument(settings.DefaultEncoding);
 
         InitializeComponent();
+        Icon = Icons.Window();
 
         Editor.TextChanged += OnEditorTextChanged;
         Editor.PropertyChanged += OnEditorPropertyChanged;
@@ -652,13 +654,59 @@ public partial class MainWindow : Window
             _document.Save(path, encoding, allowLossy);
             UpdateTitle();
             UpdateStatusBar();
-            return true;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
         {
             await MessageDialog.ShowInfoAsync(this, AppName, string.Format(ReferenceStrings.CannotCreate, path));
             return false;
         }
+
+        await OfferMenuEntryAsync();
+        return true;
+    }
+
+    // ------------------------------------------------------------------ menu entry (Linux)
+
+    /// <summary>
+    /// Asked once, after the first save, and answered either way for good (<c>menuEntry</c> in
+    /// settings.json; never before the person has done something with the program). "Add it" writes
+    /// the entry now, and startup keeps it pointing at Spartanpad wherever it moves. Closing the
+    /// dialog without answering asks again next time, not in this session.
+    /// </summary>
+    internal async Task OfferMenuEntryAsync()
+    {
+        if (!App.OfferMenuEntry || _menuEntryOffered || !OperatingSystem.IsLinux() || _settings.MenuEntry is not null
+            || Environment.ProcessPath is not string executable)
+        {
+            return;
+        }
+
+        _menuEntryOffered = true;
+        string? answer = await MessageDialog.ShowAsync(this, AppName,
+            $"Add Spartanpad to your desktop's menu?\n\nThe entry would start {executable} and show up under Utilities or Accessories. Nothing else changes, and you will not be asked again.",
+            "Add it", "No thanks");
+        if (answer is null)
+        {
+            return;
+        }
+
+        if (answer == "Add it")
+        {
+            try
+            {
+                DesktopEntry.Install(App.MenuEntryDataHome, executable, Icons.Embedded());
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                await MessageDialog.ShowInfoAsync(this, AppName, $"The menu entry could not be written ({e.Message}).");
+                return;
+            }
+
+            SetStatusMessage("Spartanpad is in your menu.");
+        }
+
+        _settings.MenuEntry = answer == "Add it";
+        SaveSettings();
     }
 
     private async Task<IStorageFolder?> SuggestedFolderAsync()

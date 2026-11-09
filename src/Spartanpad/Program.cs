@@ -1,4 +1,5 @@
 using Avalonia;
+using Spartanpad.Core;
 
 namespace Spartanpad;
 
@@ -18,15 +19,24 @@ internal static class Program
 
     public static AppBuilder BuildAvaloniaApp()
     {
+        bool software = string.Equals(Environment.GetEnvironmentVariable(RenderingVariable), "software", StringComparison.OrdinalIgnoreCase);
+
+        // The X11 class is the menu entry's name, so a desktop pairs the window with
+        // spartanpad.desktop (and, on Wayland, shows the entry's icon on it).
+        var x11 = new X11PlatformOptions { WmClass = DesktopEntry.AppId };
+        if (software)
+        {
+            x11.RenderingMode = [X11RenderingMode.Software];
+        }
+
         AppBuilder builder = AppBuilder.Configure<App>()
             .UsePlatformDetect()
-            .LogToTrace();
+            .LogToTrace()
+            .With(x11);
 
-        if (string.Equals(Environment.GetEnvironmentVariable(RenderingVariable), "software", StringComparison.OrdinalIgnoreCase))
+        if (software)
         {
-            builder = builder
-                .With(new Win32PlatformOptions { RenderingMode = [Win32RenderingMode.Software] })
-                .With(new X11PlatformOptions { RenderingMode = [X11RenderingMode.Software] });
+            builder = builder.With(new Win32PlatformOptions { RenderingMode = [Win32RenderingMode.Software] });
         }
 
         return builder;

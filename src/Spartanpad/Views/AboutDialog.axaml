@@ -7,11 +7,19 @@
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False">
   <StackPanel Margin="20" Width="380" Spacing="8">
-    <TextBlock Text="Spartanpad" FontSize="22" FontWeight="SemiBold" />
+    <StackPanel Orientation="Horizontal" Spacing="12">
+      <Image Name="IconImage" Width="48" Height="48" VerticalAlignment="Center" />
+      <TextBlock Text="Spartanpad" FontSize="22" FontWeight="SemiBold" VerticalAlignment="Center" />
+    </StackPanel>
     <TextBlock Name="VersionText" />
     <TextBlock Text="The classic Notepad, rebuilt for Windows Sandbox and Linux." TextWrapping="Wrap" />
     <TextBlock Text="Copyright (c) 2026 Christopher Conley. MIT License." TextWrapping="Wrap" Opacity="0.8" />
     <Button Name="ProjectLink" Content="Project page" Click="OnProjectLink" Padding="0" Background="Transparent" BorderThickness="0" Foreground="{DynamicResource SystemAccentColor}" />
+    <!-- The icon is a capture from Halo, used under Microsoft's Game Content Usage Rules, which
+         require this notice and a link to the rules wherever it appears. -->
+    <TextBlock Name="IconNotice" Margin="0,8,0,0" FontSize="11" Opacity="0.8" TextWrapping="Wrap"
+               Text="Halo © Microsoft Corporation. Spartanpad was created under Microsoft's &quot;Game Content Usage Rules&quot; using assets from Halo, and it is not endorsed by or affiliated with Microsoft." />
+    <Button Name="RulesLink" Content="Game Content Usage Rules" Click="OnRulesLink" Padding="0" FontSize="11" Background="Transparent" BorderThickness="0" Foreground="{DynamicResource SystemAccentColor}" />
     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
       <Button Content="OK" MinWidth="88" IsDefault="True" IsCancel="True" Click="OnOk" />
     </StackPanel>

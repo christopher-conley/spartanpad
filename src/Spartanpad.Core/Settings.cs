@@ -101,6 +101,14 @@ public sealed class Settings
     [JsonIgnore]
     public bool HasWindowRect => WindowX != Unset && WindowY != Unset && WindowWidth > 0 && WindowHeight > 0;
 
+    /// <summary>
+    /// Whether the person wants Spartanpad in their desktop menu (Linux): true or false once answered,
+    /// null until then. Not a reference setting. Asked after their first save, never before: a question
+    /// about a program nobody has used yet has no answer.
+    /// </summary>
+    [JsonPropertyName("menuEntry")]
+    public bool? MenuEntry { get; set; }
+
     /// <summary>The reference decides by <c>LOCALE_IMEASURE</c>; .NET exposes the same fact per region.</summary>
     public static bool IsMetricRegion()
     {

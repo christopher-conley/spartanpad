@@ -15,6 +15,11 @@
     <!-- The xwin package defaults to caching the Windows SDK sysroot inside its own NuGet folder,
          and that splat contains a self-referencing symlink NuGet restore walks into. -->
     <XWinCache Condition="'$(XWinCache)' == ''">$(HOME)/.cache/xwin/</XWinCache>
+    <!-- The icon resource of the Windows executable: Explorer, the taskbar and the Sandbox shortcut
+         show it. Made from the 512 drawing with Pillow (PNG-compressed entries, 16 to 256 px):
+         python3 -c "from PIL import Image; Image.open('spartanpad_512x512.png').convert('RGBA').save('spartanpad.ico', sizes=[(s, s) for s in (256, 128, 64, 48, 32, 24, 16)])"
+         Linux takes the icon from the window and the menu entry instead (Icons.cs, DesktopEntry). -->
+    <ApplicationIcon>res/spartanpad.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
@@ -32,6 +37,10 @@
 
   <ItemGroup>
     <AvaloniaResource Include="Assets/**" />
+    <!-- The icon at the sizes a Linux icon theme takes, read back by Icons.cs; the 512 is also the
+         source of the .ico above. -->
+    <EmbeddedResource Include="res/spartanpad_512x512.png" LogicalName="icons/512.png" />
+    <EmbeddedResource Include="res/spartanpad_256x256.png" LogicalName="icons/256.png" />
   </ItemGroup>
 
   <ItemGroup>

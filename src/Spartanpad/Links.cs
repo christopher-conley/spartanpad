@@ -7,4 +7,7 @@ public static class Links
     public const string Help = Project + "#readme";
     public const string Feedback = Project + "/issues";
     public const string KagiSearch = "https://kagi.com/search?q=";
+
+    /// <summary>The license the icon is used under (a Halo capture); the notice must link to it.</summary>
+    public const string GameContentRules = "https://www.xbox.com/en-US/developers/rules";
 }

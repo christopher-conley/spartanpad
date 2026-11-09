@@ -39,6 +39,10 @@ Everything the reference version of Notepad does, with one exception (printing, 
   to create it, and a dropped file opens.
 - Settings are kept with the reference's value names (`fWrap`, `iPointSize`, `szHeader`, ...) in
   `settings.json`: `%APPDATA%\Spartanpad` on Windows, `~/.config/Spartanpad` on Linux.
+- On Linux, the first save offers to add Spartanpad to the desktop menu (under Utilities or
+  Accessories, depending on the desktop, with "Open With" for plain text). The answer is kept as
+  `menuEntry` in `settings.json` and never asked again; with yes, the entry follows the executable
+  wherever it is moved.
 
 **Not done: printing.** Avalonia has no printing API. Page Setup works and its settings are kept;
 Print (and `/P`, `/PT`) shows a message saying it's not implemented yet.
@@ -64,6 +68,15 @@ The Sandbox starts with the folder mapped read-only and a Spartanpad shortcut on
 Or map the folder yourself and run `Spartanpad.exe` from it: the executable and the two native
 libraries beside it are all it needs.
 
+## Running on Linux
+
+Unzip `Spartanpad_<version>_linux-x64.zip` anywhere and run `Spartanpad` from it. Nothing is
+installed. After the first save it asks, once, whether to add itself to the menu; "Add it" writes
+`~/.local/share/applications/spartanpad.desktop` and the icon into the `hicolor` theme, and nothing
+else. To take it back later, set `menuEntry` to `false` in `~/.config/Spartanpad/settings.json`
+first (while it is `true`, every start puts the entry back wherever the executable is), then delete
+the `.desktop` file and the `spartanpad.png` icons under `~/.local/share/icons/hicolor/`.
+
 ## Building
 
 Needs the .NET 10 SDK. On Linux, a native publish needs `clang` and the zlib headers; the Windows
@@ -82,13 +95,22 @@ dotnet run --project src/Spartanpad  # run from source on the host
 
 `.github/workflows/build.yml` runs the tests and `dotnet format --verify-no-changes`, then
 publishes both executables on Ubuntu runners with the same toolchain (xwin pinned by version and
-checksum, the sysroot cached between runs) and uploads each folder as an artifact.
+checksum, the sysroot cached between runs) and uploads each zip as an artifact.
+
+## Releasing
+
+The version is the contents of `VERSION`, a date (`2026.11.09.02`); it becomes the assembly
+version, the About dialog's number and the zip names. To release: bump `VERSION`, push, then tag
+that commit with the same version and push the tag. `.github/workflows/release.yml` waits for the
+commit's build, takes its two zips as they were built and checked (nothing is rebuilt), adds a
+`.sha256` beside each and a `SHA256SUMS`, and publishes them as the GitHub release. A tag with a
+suffix (`2026.11.09.02-test1`) publishes as a prerelease; a tag that does not match `VERSION` fails.
 
 ## Layout
 
 ```
-src/Spartanpad.Core/   the document, encodings, settings, search, command line (no UI; unit tested)
-src/Spartanpad/        the Avalonia application: main window, dialogs
+src/Spartanpad.Core/   the document, encodings, settings, search, command line, menu entry (no UI; unit tested)
+src/Spartanpad/        the Avalonia application: main window, dialogs; res/ holds the icon
 tests/                 xunit tests for Core and headless UI tests for the window
 scripts/               the Windows Sandbox configuration
 ```
@@ -97,4 +119,17 @@ The document model is separate from the window so that a tabbed interface can la
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE). The MIT grant covers the code and everything else in this repository
+except the application icon, below.
+
+## Credits
+
+The icon (`src/Spartanpad/res/`) is a capture of Master Chief from Halo, used under Microsoft's
+[Game Content Usage Rules](https://www.xbox.com/en-US/developers/rules) (as last updated January
+2015), which allow non-commercial use with this notice:
+
+> Halo © Microsoft Corporation. Spartanpad was created under Microsoft's "Game Content Usage
+> Rules" using assets from Halo, and it is not endorsed by or affiliated with Microsoft.
+
+The same terms follow the icon into any fork: it may not be sold or used to earn money, and it is
+not relicensed under MIT.

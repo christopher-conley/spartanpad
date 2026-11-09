@@ -1,0 +1,148 @@
+# Publishes a release when a version tag is pushed.
+#
+# NOTHING is built here. The release is made from the artifacts of the build that already ran for
+# the tagged commit (build.yml): the exact zips that were built and checked, not a rebuild of them.
+#
+# Tags are bare versions, the contents of VERSION (2026.11.09.02, not v2026.11.09.02). A suffix
+# such as 2026.11.09.02-test1 publishes as a prerelease. There are no channels: a release is a
+# release.
+#
+# To make a release: bump VERSION, push, let the build finish (or don't, this workflow waits for
+# it), then tag that commit with the same version and push the tag.
+#
+# Assets: Spartanpad_<version>_linux-x64.zip and Spartanpad_<version>_win-x64.zip, a .sha256
+# beside each, and SHA256SUMS.
+name: release
+
+on:
+  push:
+    # Deliberately loose. The exact format is enforced by the version check below, where a bad tag
+    # fails. A pattern that failed to match would instead mean the release silently never ran.
+    tags: [ '[0-9]*' ]
+
+permissions:
+  contents: write   # create the release
+  actions: read     # find the build run and download its artifacts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Tag must match VERSION
+        id: version
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          BASE="${TAG%%-*}"
+          SRC=$(tr -d '[:space:]' < VERSION)
+          echo "tag $TAG   base $BASE   VERSION $SRC"
+          # The zips are named for VERSION and the About dialog shows it, so a release whose tag
+          # disagrees with what is inside is worse than no release.
+          [ -n "$SRC" ] || { echo "::error::VERSION is empty"; exit 1; }
+          [ "$BASE" = "$SRC" ] || { echo "::error::tag $TAG does not match VERSION \"$SRC\" -- bump VERSION and tag that commit"; exit 1; }
+          {
+            echo "LABEL=$TAG"
+            echo "BASE=$BASE"
+            echo "PRERELEASE=$([ "$TAG" != "$BASE" ] && echo true || echo false)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Find the build for this commit
+        id: build
+        run: |
+          set -euo pipefail
+          # The build is triggered by the branch push, not the tag. If both were pushed together it
+          # may still be running, so wait for it; if the commit was pushed with [skip ci], or never
+          # to a branch, no build exists and never will.
+          DEADLINE=$(( $(date +%s) + 60*60 ))
+          GRACE=$(( $(date +%s) + 5*60 ))
+          while :; do
+            RUNS=$(gh run list --repo "$REPO" --workflow build.yml --commit "$GITHUB_SHA" \
+                     --json databaseId,status,conclusion --limit 20)
+            OK=$(jq -r '[.[] | select(.conclusion == "success")] | sort_by(.databaseId) | last | .databaseId // empty' <<<"$RUNS")
+            if [ -n "$OK" ]; then echo "RUN=$OK" >> "$GITHUB_OUTPUT"; echo "using build run $OK"; break; fi
+            TOTAL=$(jq 'length' <<<"$RUNS")
+            PENDING=$(jq '[.[] | select(.status != "completed")] | length' <<<"$RUNS")
+            NOW=$(date +%s)
+            if [ "$TOTAL" -eq 0 ] && [ "$NOW" -ge "$GRACE" ]; then
+              echo "::error::no build exists for $GITHUB_SHA -- was it pushed with [skip ci], or never pushed to a branch?"; exit 1
+            fi
+            if [ "$TOTAL" -gt 0 ] && [ "$PENDING" -eq 0 ]; then
+              echo "::error::every build for $GITHUB_SHA finished without succeeding (a failed or canceled build); rerun it, then rerun this"; exit 1
+            fi
+            [ "$NOW" -lt "$DEADLINE" ] || { echo "::error::timed out waiting for the build of $GITHUB_SHA"; exit 1; }
+            echo "waiting for the build of $GITHUB_SHA ($TOTAL found, $PENDING still running)"
+            sleep 30
+          done
+
+      - name: Both artifacts must be present
+        run: |
+          set -euo pipefail
+          NAMES=$(gh api "repos/$REPO/actions/runs/${{ steps.build.outputs.RUN }}/artifacts" \
+                    --jq '.artifacts[] | select(.expired == false) | .name')
+          echo "$NAMES"
+          for RID in linux-x64 win-x64; do
+            COUNT=$(grep -c -- "-$RID\$" <<<"$NAMES" || true)
+            [ "$COUNT" -eq 1 ] || { echo "::error::build run ${{ steps.build.outputs.RUN }} has $COUNT unexpired $RID artifacts, not one"; exit 1; }
+          done
+
+      # Both zips into one folder: download-artifact extracts the artifacts matching the pattern
+      # and, merged, puts their files side by side.
+      - name: Download the artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: Spartanpad-*
+          merge-multiple: true
+          run-id: ${{ steps.build.outputs.RUN }}
+          github-token: ${{ github.token }}
+          path: artifacts
+
+      - name: Checksums
+        run: |
+          set -euo pipefail
+          BASE="${{ steps.version.outputs.BASE }}"
+          cd artifacts
+          ls -l
+          # Ties the tag to the binaries: build.sh names the zips for the VERSION it read.
+          [ -f "Spartanpad_${BASE}_linux-x64.zip" ] || { echo "::error::the artifacts have no Spartanpad_${BASE}_linux-x64.zip"; exit 1; }
+          [ -f "Spartanpad_${BASE}_win-x64.zip" ] || { echo "::error::the artifacts have no Spartanpad_${BASE}_win-x64.zip"; exit 1; }
+          [ "$(ls Spartanpad_*.zip | wc -l)" -eq 2 ] || { echo "::error::more zips than the two expected"; exit 1; }
+          # Checksums in binary mode ("hash *file"), the explicit form a Windows sha256sum also
+          # expects. One .sha256 per file so each download has its checksum beside it, plus the
+          # combined SHA256SUMS. Verify with: sha256sum -c <file>.sha256
+          for f in Spartanpad_*.zip; do
+            sha256sum -b "$f" > "$f.sha256"
+          done
+          sha256sum -b Spartanpad_*.zip > SHA256SUMS
+          cat SHA256SUMS
+          sha256sum -c ./*.sha256   # prove each file verifies before it is published
+
+      - name: Notes
+        run: |
+          set -euo pipefail
+          BASE="${{ steps.version.outputs.BASE }}"
+          {
+            echo "Built from \`${GITHUB_SHA}\` in [build run ${{ steps.build.outputs.RUN }}](https://github.com/$REPO/actions/runs/${{ steps.build.outputs.RUN }})."
+            echo
+            echo "- \`Spartanpad_${BASE}_linux-x64.zip\`: Linux. Unzip it anywhere and run \`Spartanpad\`. Nothing is installed; after the first save it offers, once, to add itself to the menu."
+            echo "- \`Spartanpad_${BASE}_win-x64.zip\`: Windows. Unzip it anywhere and run \`Spartanpad.exe\`. For Windows Sandbox, point the \`HostFolder\` in [scripts/spartanpad.wsb](https://github.com/$REPO/blob/${GITHUB_SHA}/scripts/spartanpad.wsb) at the unzipped folder and double-click the \`.wsb\`."
+            echo "- \`*.sha256\`, \`SHA256SUMS\`: checksums. Verify with \`sha256sum -c <file>.sha256\`."
+          } > notes.md
+          cat notes.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Release
+        uses: softprops/action-gh-release@v3
+        with:
+          name: Spartanpad ${{ steps.version.outputs.LABEL }}
+          body_path: notes.md
+          prerelease: ${{ steps.version.outputs.PRERELEASE }}
+          fail_on_unmatched_files: true
+          files: |
+            artifacts/Spartanpad_*.zip
+            artifacts/*.sha256
+            artifacts/SHA256SUMS
