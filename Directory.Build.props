@@ -1,0 +1,38 @@
+<Project>
+  <!-- The one version number for the repository lives in VERSION at the root. It becomes the
+       assembly version of every project and the name of a release. -->
+  <PropertyGroup>
+    <SpartanpadVersionFile>$(MSBuildThisFileDirectory)/VERSION</SpartanpadVersionFile>
+    <SpartanpadVersion Condition="Exists('$(SpartanpadVersionFile)')">$([System.IO.File]::ReadAllText('$(SpartanpadVersionFile)').Trim())</SpartanpadVersion>
+    <Version Condition="'$(SpartanpadVersion)' != ''">$(SpartanpadVersion)</Version>
+    <InformationalVersion Condition="'$(SpartanpadVersion)' != ''">$(SpartanpadVersion)</InformationalVersion>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <Product>Spartanpad</Product>
+    <Company>Spartanpad</Company>
+    <AssemblyTitle>Spartanpad</AssemblyTitle>
+    <Description>The classic Notepad, rebuilt for Windows Sandbox and Linux.</Description>
+    <Copyright>Copyright (c) 2026 Christopher Conley</Copyright>
+  </PropertyGroup>
+
+  <Target Name="RequireVersionFile" BeforeTargets="BeforeBuild">
+    <Error Condition="'$(SpartanpadVersion)' == ''" Text="VERSION file not found at $(SpartanpadVersionFile); build inside the repository." />
+  </Target>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <!-- Every project is linked into the NativeAOT executable, so every project is checked for
+         trimming and AOT compatibility by the analyzers. -->
+    <IsAotCompatible>true</IsAotCompatible>
+    <!-- Globalization stays on: encoding detection, culture-aware Find and the Time/Date stamp
+         need the ICU data (it is bundled into the AOT build). -->
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <!-- The .editorconfig rules run as analyzers during the build. -->
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+</Project>

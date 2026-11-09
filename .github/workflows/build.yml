@@ -1,0 +1,158 @@
+# Builds Spartanpad: tests and the formatting check, then NativeAOT executables for Linux and for
+# Windows, both from Linux runners. The Windows build links with lld-link against an xwin Windows
+# SDK sysroot, the same way ovs-client is built.
+#
+# Artifacts: Spartanpad-<sha>-linux-x64 and Spartanpad-<sha>-win-x64, each holding the folder
+# that ships (the executable plus the native Skia and HarfBuzz libraries beside it).
+name: build
+
+on:
+  push:
+    branches: [ '**' ]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  # ------------------------------------------------------------------ tests
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Build and test
+        run: ./build.sh test
+
+      - name: Check formatting
+        run: dotnet format Spartanpad.slnx --verify-no-changes
+
+  # ------------------------------------------------------------- linux x64
+  linux-x64:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set short SHA
+        id: short_sha
+        run: echo "SHORT_SHA=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Install the NativeAOT toolchain
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq clang zlib1g-dev
+
+      - name: Publish
+        run: ./build.sh publish linux-x64
+
+      - name: Guard - the artifact is what ships
+        run: |
+          set -euo pipefail
+          [ -x out/linux-x64/Spartanpad ] || { echo "::error::out/linux-x64/Spartanpad is missing or not executable"; ls -l out/linux-x64; exit 1; }
+          file out/linux-x64/Spartanpad | grep -q 'ELF 64-bit' || { echo "::error::out/linux-x64/Spartanpad is not an ELF executable"; exit 1; }
+          ls -l out/linux-x64 | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload
+        uses: actions/upload-artifact@v7
+        with:
+          name: Spartanpad-${{ steps.short_sha.outputs.SHORT_SHA }}-linux-x64
+          path: out/linux-x64/
+          if-no-files-found: error
+
+  # ----------------------------------------------------------- windows x64
+  windows-x64:
+    needs: test
+    runs-on: ubuntu-latest
+    env:
+      XWIN_VERSION: "0.10.0"
+      XWIN_SHA256: d870eb4b2f390878af6da1ccd3cf321d22fcb72720984853b4be732ae597fc88
+      # Accepts the Visual Studio Build Tools license for the Windows SDK that xwin downloads,
+      # on the repository owner's behalf. build.sh asks otherwise, and a runner has no one to ask.
+      ACCEPT_VS_BUILD_TOOLS_LICENSE: "true"
+      # The x64 SDK libraries only; the cross-compile package fetches aarch64 as well by
+      # default. An environment variable reaches MSBuild as a property of the same name.
+      XwinArches: x86_64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set short SHA
+        id: short_sha
+        run: echo "SHORT_SHA=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Install lld
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq lld
+
+      - name: Install xwin
+        run: |
+          set -euo pipefail
+          name="xwin-$XWIN_VERSION-x86_64-unknown-linux-musl"
+          curl -fsSL -o "$RUNNER_TEMP/$name.tar.gz" "https://github.com/Jake-Shadle/xwin/releases/download/$XWIN_VERSION/$name.tar.gz"
+          # Checked before anything in it runs.
+          echo "$XWIN_SHA256  $RUNNER_TEMP/$name.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/$name.tar.gz" -C "$RUNNER_TEMP"
+          mkdir -p "$HOME/.local/bin"
+          install -m 755 "$RUNNER_TEMP/$name/xwin" "$HOME/.local/bin/xwin"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Preflight
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          command -v lld-link >/dev/null || { ls -l /usr/bin/*lld* /usr/lib/llvm-*/bin/lld-link 2>/dev/null || true; fail "lld-link is not on PATH after installing lld"; }
+          command -v xwin >/dev/null || fail "xwin is not on PATH"
+          echo "### Toolchain" >> "$GITHUB_STEP_SUMMARY"
+          { dotnet --version; lld-link --version | head -1; xwin --version; } \
+            | sed 's/^/    /' | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # The cross-compile package runs xwin only when the splat is missing, and the splat is all
+      # it reads, so the splat is all that is cached.
+      - name: Windows SDK sysroot
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/xwin/splat
+          key: xwin-${{ env.XWIN_VERSION }}-sdk-10.0.22621-${{ env.XwinArches }}
+
+      - name: Publish
+        run: ./build.sh publish win-x64 --accept-license
+
+      - name: Guard - the artifact is what ships
+        run: |
+          set -euo pipefail
+          [ -f out/win-x64/Spartanpad.exe ] || { echo "::error::out/win-x64/Spartanpad.exe is missing"; ls -l out/win-x64; exit 1; }
+          [ "$(head -c 2 out/win-x64/Spartanpad.exe)" = "MZ" ] || { echo "::error::Spartanpad.exe is not a PE file"; exit 1; }
+          ls -l out/win-x64 | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload
+        uses: actions/upload-artifact@v7
+        with:
+          name: Spartanpad-${{ steps.short_sha.outputs.SHORT_SHA }}-win-x64
+          path: out/win-x64/
+          if-no-files-found: error

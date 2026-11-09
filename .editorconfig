@@ -1,0 +1,36 @@
+# Formatting rules for the C# tree. Applied with `dotnet format` from this directory.
+root = true
+
+[*]
+indent_style = space
+indent_size = 4
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.{yml,yaml,json,axaml,xml,csproj,props,slnx}]
+indent_size = 2
+
+[*.cs]
+# Every if/else/for/foreach/while/using/lock body gets braces (IDE0011); an error, so a build
+# fails on it. One-line `{ get; set; }` and single-expression `=>` bodies stay as they are.
+csharp_prefer_braces = true:error
+csharp_preserve_single_line_blocks = true
+csharp_preserve_single_line_statements = false
+
+# Allman braces, and else/catch/finally on their own line.
+csharp_new_line_before_open_brace = all
+csharp_new_line_before_else = true
+csharp_new_line_before_catch = true
+csharp_new_line_before_finally = true
+
+dotnet_sort_system_directives_first = true
+csharp_using_directive_placement = outside_namespace
+csharp_style_namespace_declarations = file_scoped:warning
+csharp_style_var_for_built_in_types = false
+csharp_style_var_when_type_is_apparent = true
+csharp_style_var_elsewhere = true
+dotnet_style_qualification_for_field = false
+dotnet_style_qualification_for_property = false
+dotnet_style_qualification_for_method = false
+dotnet_style_qualification_for_event = false

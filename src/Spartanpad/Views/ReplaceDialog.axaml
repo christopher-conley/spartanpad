@@ -1,0 +1,26 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Spartanpad.Views.ReplaceDialog"
+        Title="Replace"
+        SizeToContent="WidthAndHeight"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False">
+  <Grid Margin="12" ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto,Auto,Auto,Auto" ColumnSpacing="8" RowSpacing="8">
+    <TextBlock Grid.Row="0" Grid.Column="0" Text="Find what:" VerticalAlignment="Center" />
+    <TextBox Grid.Row="0" Grid.Column="1" Name="FindWhat" MinWidth="240" TextChanged="OnFindWhatChanged" />
+    <Button Grid.Row="0" Grid.Column="2" Name="FindNextButton" Content="Find Next" MinWidth="96" IsDefault="True" Click="OnFindNext" />
+
+    <TextBlock Grid.Row="1" Grid.Column="0" Text="Replace with:" VerticalAlignment="Center" />
+    <TextBox Grid.Row="1" Grid.Column="1" Name="ReplaceWith" MinWidth="240" />
+    <Button Grid.Row="1" Grid.Column="2" Name="ReplaceButton" Content="Replace" MinWidth="96" Click="OnReplace" />
+
+    <StackPanel Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2" Grid.RowSpan="3" Spacing="6" Margin="0,4,0,0">
+      <CheckBox Name="MatchCase" Content="Match case" />
+      <CheckBox Name="WrapAround" Content="Wrap around" />
+    </StackPanel>
+
+    <Button Grid.Row="2" Grid.Column="2" Name="ReplaceAllButton" Content="Replace All" MinWidth="96" Click="OnReplaceAll" />
+    <Button Grid.Row="3" Grid.Column="2" Content="Cancel" MinWidth="96" IsCancel="True" Click="OnCancel" />
+  </Grid>
+</Window>

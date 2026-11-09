@@ -437,3 +437,14 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+# Build output and local notes
+out/
+local/
+
+# Code indexes and memory stores (kept per machine, as in the other repos)
+.codegraph/
+codegraph.json
+graphify-out/
+.graphifyignore
+.memorymesh/

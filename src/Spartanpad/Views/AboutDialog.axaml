@@ -1,0 +1,19 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Spartanpad.Views.AboutDialog"
+        Title="About Spartanpad"
+        SizeToContent="WidthAndHeight"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False">
+  <StackPanel Margin="20" Width="380" Spacing="8">
+    <TextBlock Text="Spartanpad" FontSize="22" FontWeight="SemiBold" />
+    <TextBlock Name="VersionText" />
+    <TextBlock Text="The classic Notepad, rebuilt for Windows Sandbox and Linux." TextWrapping="Wrap" />
+    <TextBlock Text="Copyright (c) 2026 Christopher Conley. MIT License." TextWrapping="Wrap" Opacity="0.8" />
+    <Button Name="ProjectLink" Content="Project page" Click="OnProjectLink" Padding="0" Background="Transparent" BorderThickness="0" Foreground="{DynamicResource SystemAccentColor}" />
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
+      <Button Content="OK" MinWidth="88" IsDefault="True" IsCancel="True" Click="OnOk" />
+    </StackPanel>
+  </StackPanel>
+</Window>

@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <AssemblyName>Spartanpad</AssemblyName>
+    <RootNamespace>Spartanpad</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- One native executable per platform. No RuntimeIdentifier here: `dotnet build` and the tests
+         target the host, and publish passes -r linux-x64 or -r win-x64. -->
+    <PublishAot>true</PublishAot>
+    <StripSymbols>true</StripSymbols>
+    <BuiltInComInteropSupport>false</BuiltInComInteropSupport>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <!-- The xwin package defaults to caching the Windows SDK sysroot inside its own NuGet folder,
+         and that splat contains a self-referencing symlink NuGet restore walks into. -->
+    <XWinCache Condition="'$(XWinCache)' == ''">$(HOME)/.cache/xwin/</XWinCache>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="12.1.5" />
+    <PackageReference Include="Avalonia.Desktop" Version="12.1.5" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.5" />
+    <!-- Lets `dotnet publish -r win-x64` link on Linux with lld-link and an xwin sysroot. Only
+         active for win-* RIDs on a non-Windows host. -->
+    <PackageReference Include="PublishAotCrossXWin" Version="1.2.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Spartanpad.Core/Spartanpad.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AvaloniaResource Include="Assets/**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The headless UI tests reach the named controls. -->
+    <InternalsVisibleTo Include="Spartanpad.Tests" />
+  </ItemGroup>
+
+</Project>

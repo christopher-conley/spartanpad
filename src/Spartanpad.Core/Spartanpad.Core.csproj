@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Spartanpad.Core</RootNamespace>
+    <!-- No UI framework in here: the document, encodings, settings and search are plain .NET so
+         they can be unit-tested and reused when documents move into tabs. -->
+  </PropertyGroup>
+
+</Project>

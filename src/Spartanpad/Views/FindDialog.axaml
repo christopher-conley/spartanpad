@@ -1,0 +1,28 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Spartanpad.Views.FindDialog"
+        Title="Find"
+        SizeToContent="WidthAndHeight"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False">
+  <Grid Margin="12" ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto,Auto,Auto" ColumnSpacing="8" RowSpacing="8">
+    <TextBlock Grid.Row="0" Grid.Column="0" Text="Find what:" VerticalAlignment="Center" />
+    <TextBox Grid.Row="0" Grid.Column="1" Name="FindWhat" MinWidth="260" TextChanged="OnFindWhatChanged" />
+    <Button Grid.Row="0" Grid.Column="2" Name="FindNextButton" Content="Find Next" MinWidth="96" IsDefault="True" Click="OnFindNext" />
+
+    <StackPanel Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" Grid.RowSpan="3" Spacing="6" Margin="0,4,0,0">
+      <CheckBox Name="MatchCase" Content="Match case" />
+      <CheckBox Name="WrapAround" Content="Wrap around" />
+      <Border BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}" BorderThickness="1" CornerRadius="3" Padding="8,4" HorizontalAlignment="Left">
+        <StackPanel Orientation="Horizontal" Spacing="12">
+          <TextBlock Text="Direction" VerticalAlignment="Center" />
+          <RadioButton Name="DirectionUp" Content="Up" GroupName="Direction" />
+          <RadioButton Name="DirectionDown" Content="Down" GroupName="Direction" IsChecked="True" />
+        </StackPanel>
+      </Border>
+    </StackPanel>
+
+    <Button Grid.Row="1" Grid.Column="2" Content="Cancel" MinWidth="96" IsCancel="True" Click="OnCancel" VerticalAlignment="Top" />
+  </Grid>
+</Window>

@@ -1,0 +1,36 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Spartanpad.Views.FontDialog"
+        Title="Font"
+        Width="520" Height="440"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False">
+  <Grid Margin="12" ColumnDefinitions="2*,*,*" RowDefinitions="Auto,*,Auto,Auto,Auto" ColumnSpacing="8" RowSpacing="4">
+    <TextBlock Grid.Row="0" Grid.Column="0" Text="Font:" />
+    <TextBlock Grid.Row="0" Grid.Column="1" Text="Font style:" />
+    <TextBlock Grid.Row="0" Grid.Column="2" Text="Size:" />
+
+    <ListBox Grid.Row="1" Grid.Column="0" Name="Families" SelectionChanged="OnChoiceChanged" />
+    <ListBox Grid.Row="1" Grid.Column="1" Name="StyleList" SelectionChanged="OnChoiceChanged">
+      <ListBoxItem Content="Regular" />
+      <ListBoxItem Content="Italic" />
+      <ListBoxItem Content="Bold" />
+      <ListBoxItem Content="Bold Italic" />
+    </ListBox>
+    <DockPanel Grid.Row="1" Grid.Column="2">
+      <TextBox DockPanel.Dock="Top" Name="SizeText" TextChanged="OnSizeTextChanged" Margin="0,0,0,4" />
+      <ListBox Name="Sizes" SelectionChanged="OnSizeSelected" />
+    </DockPanel>
+
+    <TextBlock Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" Text="Sample" Margin="0,8,0,0" />
+    <Border Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="3" BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}" BorderThickness="1" Height="72" Padding="8">
+      <TextBlock Name="Sample" Text="AaBbYyZz" VerticalAlignment="Center" HorizontalAlignment="Center" />
+    </Border>
+
+    <StackPanel Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="3" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,8,0,0">
+      <Button Content="OK" MinWidth="88" IsDefault="True" Click="OnOk" />
+      <Button Content="Cancel" MinWidth="88" IsCancel="True" Click="OnCancel" />
+    </StackPanel>
+  </Grid>
+</Window>

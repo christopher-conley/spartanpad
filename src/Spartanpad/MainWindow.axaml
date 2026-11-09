@@ -1,0 +1,110 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Spartanpad.MainWindow"
+        Title="Untitled - Spartanpad"
+        Width="900" Height="600" MinWidth="360" MinHeight="240"
+        DragDrop.AllowDrop="True">
+  <DockPanel>
+    <Menu DockPanel.Dock="Top">
+      <MenuItem Header="_File">
+        <MenuItem Header="_New" InputGesture="Ctrl+N" Click="OnNew" />
+        <MenuItem Header="New _Window" InputGesture="Ctrl+Shift+N" Click="OnNewWindow" />
+        <MenuItem Header="_Open..." InputGesture="Ctrl+O" Click="OnOpen" />
+        <MenuItem Header="_Save" InputGesture="Ctrl+S" Click="OnSave" />
+        <MenuItem Header="Save _As..." InputGesture="Ctrl+Shift+S" Click="OnSaveAs" />
+        <Separator />
+        <MenuItem Header="Page Set_up..." Click="OnPageSetup" />
+        <MenuItem Header="_Print..." InputGesture="Ctrl+P" Click="OnPrint" />
+        <Separator />
+        <MenuItem Header="E_xit" Click="OnExit" />
+      </MenuItem>
+      <MenuItem Header="_Edit" SubmenuOpened="OnEditMenuOpened">
+        <MenuItem Name="UndoItem" Header="_Undo" InputGesture="Ctrl+Z" Click="OnUndo" />
+        <Separator />
+        <MenuItem Name="CutItem" Header="Cu_t" InputGesture="Ctrl+X" Click="OnCut" />
+        <MenuItem Name="CopyItem" Header="_Copy" InputGesture="Ctrl+C" Click="OnCopy" />
+        <MenuItem Name="PasteItem" Header="_Paste" InputGesture="Ctrl+V" Click="OnPaste" />
+        <MenuItem Name="DeleteItem" Header="De_lete" InputGesture="Delete" Click="OnDelete" />
+        <Separator />
+        <MenuItem Name="KagiItem" Header="_Search with Kagi..." InputGesture="Ctrl+E" Click="OnSearchWithKagi" />
+        <MenuItem Name="FindItem" Header="_Find..." InputGesture="Ctrl+F" Click="OnFind" />
+        <MenuItem Name="FindNextItem" Header="Find _Next" InputGesture="F3" Click="OnFindNext" />
+        <MenuItem Name="FindPreviousItem" Header="Find Pre_vious" InputGesture="Shift+F3" Click="OnFindPrevious" />
+        <MenuItem Header="_Replace..." InputGesture="Ctrl+H" Click="OnReplace" />
+        <MenuItem Name="GoToItem" Header="_Go To..." InputGesture="Ctrl+G" Click="OnGoTo" />
+        <Separator />
+        <MenuItem Header="Select _All" InputGesture="Ctrl+A" Click="OnSelectAll" />
+        <MenuItem Header="Time/_Date" InputGesture="F5" Click="OnTimeDate" />
+      </MenuItem>
+      <MenuItem Header="F_ormat">
+        <MenuItem Name="WordWrapItem" Header="_Word Wrap" ToggleType="CheckBox" Click="OnWordWrap" />
+        <MenuItem Header="_Font..." Click="OnFont" />
+      </MenuItem>
+      <MenuItem Header="_View">
+        <MenuItem Header="_Zoom">
+          <MenuItem Header="Zoom _In" InputGesture="Ctrl+OemPlus" Click="OnZoomIn" />
+          <MenuItem Header="Zoom _Out" InputGesture="Ctrl+OemMinus" Click="OnZoomOut" />
+          <MenuItem Header="_Restore Default Zoom" InputGesture="Ctrl+D0" Click="OnZoomReset" />
+        </MenuItem>
+        <MenuItem Name="StatusBarItem" Header="_Status Bar" ToggleType="CheckBox" Click="OnStatusBar" />
+      </MenuItem>
+      <MenuItem Header="_Help">
+        <MenuItem Header="View _Help" InputGesture="F1" Click="OnViewHelp" />
+        <MenuItem Header="Send _Feedback" Click="OnSendFeedback" />
+        <Separator />
+        <MenuItem Header="_About Spartanpad" Click="OnAbout" />
+      </MenuItem>
+    </Menu>
+
+    <!-- The five status bar parts of the reference, right-aligned at its widths:
+         message | Ln, Col (140) | zoom (50) | line ending (120) | encoding (120). -->
+    <Border DockPanel.Dock="Bottom" Name="StatusBar" Height="24"
+            Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+            BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}" BorderThickness="0,1,0,0">
+      <Grid ColumnDefinitions="*,140,50,120,120">
+        <Grid.Styles>
+          <Style Selector="TextBlock">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Margin" Value="6,0" />
+          </Style>
+          <Style Selector="Border.part">
+            <Setter Property="BorderBrush" Value="{DynamicResource SystemControlForegroundBaseLowBrush}" />
+            <Setter Property="BorderThickness" Value="1,0,0,0" />
+          </Style>
+        </Grid.Styles>
+        <TextBlock Grid.Column="0" Name="StatusMessage" />
+        <Border Grid.Column="1" Classes="part"><TextBlock Name="StatusLineColumn" /></Border>
+        <Border Grid.Column="2" Classes="part"><TextBlock Name="StatusZoom" /></Border>
+        <Border Grid.Column="3" Classes="part">
+          <Button Name="LineEndingButton" Background="Transparent" BorderThickness="0" Padding="6,0"
+                  HorizontalAlignment="Stretch" VerticalAlignment="Stretch" HorizontalContentAlignment="Left"
+                  FontSize="12" ToolTip.Tip="Line ending: click to change" />
+        </Border>
+        <Border Grid.Column="4" Classes="part">
+          <Button Name="EncodingButton" Background="Transparent" BorderThickness="0" Padding="6,0"
+                  HorizontalAlignment="Stretch" VerticalAlignment="Stretch" HorizontalContentAlignment="Left"
+                  FontSize="12" ToolTip.Tip="Encoding: click to change" />
+        </Border>
+      </Grid>
+    </Border>
+
+    <TextBox Name="Editor"
+             AcceptsReturn="True" AcceptsTab="True"
+             TextWrapping="NoWrap"
+             ScrollViewer.VerticalScrollBarVisibility="Visible"
+             ScrollViewer.HorizontalScrollBarVisibility="Auto"
+             CornerRadius="0" BorderThickness="0" Padding="4,2"
+             ClearSelectionOnLostFocus="False" IsInactiveSelectionHighlightEnabled="True">
+      <TextBox.Styles>
+        <!-- The editor fills the window; the theme's focus border around it is noise. -->
+        <Style Selector="TextBox:focus /template/ Border#PART_BorderElement">
+          <Setter Property="BorderThickness" Value="0" />
+        </Style>
+        <Style Selector="TextBox:pointerover /template/ Border#PART_BorderElement">
+          <Setter Property="BorderThickness" Value="0" />
+        </Style>
+      </TextBox.Styles>
+    </TextBox>
+  </DockPanel>
+</Window>

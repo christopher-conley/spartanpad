@@ -1,0 +1,44 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Spartanpad.Views.PageSetupDialog"
+        Title="Page Setup"
+        SizeToContent="WidthAndHeight"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False">
+  <StackPanel Margin="12" Width="420" Spacing="10">
+    <HeaderedContentControl Header="Orientation">
+      <StackPanel Orientation="Horizontal" Spacing="16" Margin="8,4">
+        <RadioButton Name="Portrait" Content="Portrait" GroupName="Orientation" IsChecked="True" />
+        <RadioButton Name="Landscape" Content="Landscape" GroupName="Orientation" />
+      </StackPanel>
+    </HeaderedContentControl>
+
+    <HeaderedContentControl Name="MarginsGroup" Header="Margins (inches)">
+      <Grid ColumnDefinitions="Auto,*,Auto,*" RowDefinitions="Auto,Auto" ColumnSpacing="8" RowSpacing="8" Margin="8,4">
+        <TextBlock Grid.Row="0" Grid.Column="0" Text="Left:" VerticalAlignment="Center" />
+        <TextBox Grid.Row="0" Grid.Column="1" Name="MarginLeft" />
+        <TextBlock Grid.Row="0" Grid.Column="2" Text="Right:" VerticalAlignment="Center" />
+        <TextBox Grid.Row="0" Grid.Column="3" Name="MarginRight" />
+        <TextBlock Grid.Row="1" Grid.Column="0" Text="Top:" VerticalAlignment="Center" />
+        <TextBox Grid.Row="1" Grid.Column="1" Name="MarginTop" />
+        <TextBlock Grid.Row="1" Grid.Column="2" Text="Bottom:" VerticalAlignment="Center" />
+        <TextBox Grid.Row="1" Grid.Column="3" Name="MarginBottom" />
+      </Grid>
+    </HeaderedContentControl>
+
+    <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto" ColumnSpacing="8" RowSpacing="8">
+      <TextBlock Grid.Row="0" Grid.Column="0" Text="Header:" VerticalAlignment="Center" />
+      <TextBox Grid.Row="0" Grid.Column="1" Name="Header" />
+      <TextBlock Grid.Row="1" Grid.Column="0" Text="Footer:" VerticalAlignment="Center" />
+      <TextBox Grid.Row="1" Grid.Column="1" Name="Footer" />
+    </Grid>
+    <TextBlock FontSize="12" Opacity="0.8" TextWrapping="Wrap"
+               Text="Codes: &amp;f file name, &amp;p page number, &amp;d date, &amp;t time, &amp;l &amp;c &amp;r left/center/right, &amp;&amp; ampersand." />
+
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+      <Button Content="OK" MinWidth="88" IsDefault="True" Click="OnOk" />
+      <Button Content="Cancel" MinWidth="88" IsCancel="True" Click="OnCancel" />
+    </StackPanel>
+  </StackPanel>
+</Window>

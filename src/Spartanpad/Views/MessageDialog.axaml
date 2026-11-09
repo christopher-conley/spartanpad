@@ -1,0 +1,13 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Spartanpad.Views.MessageDialog"
+        Title="Spartanpad"
+        SizeToContent="WidthAndHeight"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False">
+  <StackPanel Margin="20,16,20,16" MinWidth="320" MaxWidth="520" Spacing="16">
+    <TextBlock Name="MessageText" TextWrapping="Wrap" />
+    <StackPanel Name="Buttons" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" />
+  </StackPanel>
+</Window>

@@ -1,0 +1,15 @@
+<!-- A Windows Sandbox configuration that maps the published win-x64 folder in read-only and
+     puts a Spartanpad shortcut on the sandbox desktop. Edit HostFolder to where you unpacked
+     Spartanpad_<version>_win-x64.zip, then double-click this file. -->
+<Configuration>
+  <MappedFolders>
+    <MappedFolder>
+      <HostFolder>C:\Tools\Spartanpad</HostFolder>
+      <SandboxFolder>C:\Spartanpad</SandboxFolder>
+      <ReadOnly>true</ReadOnly>
+    </MappedFolder>
+  </MappedFolders>
+  <LogonCommand>
+    <Command>powershell -NoProfile -WindowStyle Hidden -Command "$s=(New-Object -ComObject WScript.Shell).CreateShortcut(\"$env:USERPROFILE\Desktop\Spartanpad.lnk\"); $s.TargetPath='C:\Spartanpad\Spartanpad.exe'; $s.Save()"</Command>
+  </LogonCommand>
+</Configuration>

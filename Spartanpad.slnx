@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="src/Spartanpad.Core/Spartanpad.Core.csproj" />
+  <Project Path="src/Spartanpad/Spartanpad.csproj" />
+  <Project Path="tests/Spartanpad.Tests/Spartanpad.Tests.csproj" />
+</Solution>
