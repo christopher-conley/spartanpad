@@ -32,7 +32,9 @@ public class MainWindowTests
         var dir = new TempDir();
         var window = new MainWindow(settings ?? new Settings(), dir.File("settings.json"), CommandLine.Parse(args));
         window.Show();
-        window.Editor.Focus();
+        // The editor's text area joins the tree when its template is applied, in the layout pass.
+        Dispatcher.UIThread.RunJobs();
+        window.Editor.TextArea.Focus();
         return (window, dir);
     }
 
@@ -122,7 +124,7 @@ public class MainWindowTests
             Assert.Equal(" Windows (CRLF)", window.LineEndingButton.Content);
             Assert.Equal("UTF-8", window.EncodingButton.Content);
             Assert.True(window.StatusBar.IsVisible);
-            Assert.Equal(TextWrapping.NoWrap, window.Editor.TextWrapping);
+            Assert.False(window.Editor.WordWrap);
             window.Close();
         }
     }
@@ -136,11 +138,67 @@ public class MainWindowTests
             window.KeyTextInput("hello");
             window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
             window.KeyTextInput("ab");
+            // Tab is a character here, not a move to the next control, and one column.
+            window.KeyPressQwerty(PhysicalKey.Tab, RawInputModifiers.None);
+            window.KeyTextInput("c");
 
-            Assert.Equal("hello\r\nab", window.Document.Text);
+            Assert.Equal("hello\r\nab\tc", window.Editor.Text);
             Assert.True(window.Document.IsDirty);
             Assert.Equal("*Untitled - Spartanpad", window.Title);
-            Assert.Equal(" Ln 2, Col 3", window.StatusLineColumn.Text);
+            Assert.Equal(" Ln 2, Col 5", window.StatusLineColumn.Text);
+            window.Close();
+        }
+    }
+
+    /// <summary>Column selection: Alt+Shift+Down grows a zero-width box over two lines, and typing lands on both.</summary>
+    [AvaloniaFact]
+    public void ColumnSelectionTypesOnEveryLine()
+    {
+        (MainWindow window, TempDir dir) = Open();
+        using (dir)
+        {
+            window.KeyTextInput("ab");
+            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+            window.KeyTextInput("cd");
+            window.Editor.CaretOffset = 0;
+            window.KeyPressQwerty(PhysicalKey.ArrowDown, RawInputModifiers.Alt | RawInputModifiers.Shift);
+            Assert.IsType<AvaloniaEdit.Editing.RectangleSelection>(window.Editor.TextArea.Selection);
+            window.KeyTextInput("x");
+            Assert.Equal("xab\r\nxcd", window.Editor.Text);
+            window.Close();
+        }
+    }
+
+    /// <summary>
+    /// A box selected with Alt and the mouse: releasing Alt afterwards must not hand the keyboard to the
+    /// menu bar (Avalonia opens the menu on an Alt release unless another key was pressed meanwhile, and
+    /// a mouse press does not count).
+    /// </summary>
+    [AvaloniaFact]
+    public void ReleasingAltAfterAMouseBoxSelectionKeepsTheKeyboardInTheEditor()
+    {
+        (MainWindow window, TempDir dir) = Open();
+        using (dir)
+        {
+            window.KeyTextInput("ab");
+            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+            window.KeyTextInput("cd");
+            Point origin = window.Editor.TextArea.TextView.TranslatePoint(new Point(0, 0), window)!.Value;
+            double lineHeight = window.Editor.TextArea.TextView.DefaultLineHeight;
+            Point top = origin + new Vector(1, lineHeight / 2);
+            Point bottom = origin + new Vector(1, lineHeight * 1.5);
+
+            window.KeyPressQwerty(PhysicalKey.AltLeft, RawInputModifiers.Alt);
+            window.MouseDown(top, MouseButton.Left, RawInputModifiers.Alt);
+            window.MouseMove(bottom, RawInputModifiers.Alt | RawInputModifiers.LeftMouseButton);
+            window.MouseUp(bottom, MouseButton.Left, RawInputModifiers.Alt);
+            Assert.IsType<AvaloniaEdit.Editing.RectangleSelection>(window.Editor.TextArea.Selection);
+            window.KeyReleaseQwerty(PhysicalKey.AltLeft, RawInputModifiers.None);
+
+            Assert.False(window.MainMenu.IsOpen);
+            Assert.True(window.Editor.TextArea.IsFocused);
+            window.KeyTextInput("x");
+            Assert.Equal("xab\r\nxcd", window.Editor.Text);
             window.Close();
         }
     }
@@ -159,11 +217,10 @@ public class MainWindowTests
             Assert.Equal("a.txt - Spartanpad", window.Title);
             Assert.Equal("UTF-16 LE", window.EncodingButton.Content);
             Assert.Equal(" Unix (LF)", window.LineEndingButton.Content);
-            Assert.Equal("\n", window.Editor.NewLine);
             Assert.False(window.Editor.CanUndo);
 
             window.GoToLine(3);
-            Assert.Equal(8, window.Editor.CaretIndex);
+            Assert.Equal(8, window.Editor.CaretOffset);
             Assert.Equal(" Ln 3, Col 1", window.StatusLineColumn.Text);
             window.Close();
         }
@@ -181,7 +238,7 @@ public class MainWindowTests
             Assert.StartsWith(".LOG\r\nfirst entry\r\n\r\n", window.Editor.Text);
             Assert.EndsWith("\r\n", window.Editor.Text);
             Assert.True(window.Document.IsDirty);
-            Assert.Equal(window.Editor.Text!.Length, window.Editor.CaretIndex);
+            Assert.Equal(window.Editor.Text.Length, window.Editor.CaretOffset);
             window.Close();
         }
     }
@@ -194,12 +251,12 @@ public class MainWindowTests
         using (dir)
         {
             window.KeyTextInput("the cat and the dog");
-            window.Editor.CaretIndex = 0;
-            window.Editor.ClearSelection();
+            window.Editor.CaretOffset = 0;
+            window.Editor.TextArea.ClearSelection();
 
             Assert.True(await window.FindNextAsync(forward: true));
             Assert.Equal(0, window.Editor.SelectionStart);
-            Assert.Equal(3, window.Editor.SelectionEnd);
+            Assert.Equal(3, window.Editor.SelectionLength);
             Assert.Equal(string.Empty, window.StatusMessage.Text);
 
             Assert.True(await window.FindNextAsync(forward: true));
@@ -224,7 +281,7 @@ public class MainWindowTests
             Assert.Null(window.ReplaceDialogForTests);
 
             // The Find window took the keyboard focus; the user clicks back into the editor.
-            window.Editor.Focus();
+            window.Editor.TextArea.Focus();
             window.KeyPressQwerty(PhysicalKey.H, RawInputModifiers.Control);
             Assert.Null(window.FindDialogForTests);
             Assert.NotNull(window.ReplaceDialogForTests);
@@ -249,7 +306,7 @@ public class MainWindowTests
             Assert.Equal(size, window.Editor.FontSize);
 
             window.ToggleWordWrap();
-            Assert.Equal(TextWrapping.Wrap, window.Editor.TextWrapping);
+            Assert.True(window.Editor.WordWrap);
             Assert.True(window.Settings.WordWrap);
             Assert.True(window.WordWrapItem.IsChecked);
 
@@ -269,7 +326,7 @@ public class MainWindowTests
             string path = dir.File("out.txt");
             File.WriteAllText(path, "seed");
             Assert.True(await window.OpenPathAsync(path, null, createIfMissing: false));
-            window.Editor.CaretIndex = 4;
+            window.Editor.CaretOffset = 4;
             window.KeyTextInput(" more");
             Assert.True(window.Document.IsDirty);
 
@@ -306,11 +363,7 @@ public class MainWindowTests
 
             Assert.Equal("bird", window.Settings.ReplaceString);
             Assert.Equal("bird\nbird\ndog\n", window.Editor.Text);
-            Assert.Equal("bird\nbird\ndog\n", window.Document.Text);
             Assert.Equal("*lf.txt - Spartanpad", window.Title);
-            // The text box raises TextChanged on a later dispatcher job; the document must not regress.
-            Dispatcher.UIThread.RunJobs();
-            Assert.Equal("bird\nbird\ndog\n", window.Document.Text);
             Assert.True(window.Editor.CanUndo);
             Assert.Equal(" Unix (LF)", window.LineEndingButton.Content);
             Assert.True(window.Document.IsDirty);
@@ -321,9 +374,9 @@ public class MainWindowTests
 
     [AvaloniaTheory]
     [InlineData(25_000)]
-    [InlineData(50_000)]
     [InlineData(100_000)]
-    public async Task OpensAMultiMegabyteFileWithinTheCap(int lines)
+    [InlineData(500_000)]
+    public async Task OpensALargeFileInSeconds(int lines)
     {
         (MainWindow window, TempDir dir) = Open();
         using (dir)
@@ -342,7 +395,7 @@ public class MainWindowTests
             var watch = System.Diagnostics.Stopwatch.StartNew();
             Assert.True(await window.OpenPathAsync(path, null, createIfMissing: false));
             watch.Stop();
-            Assert.Equal(lines + 1, new LineIndex(window.Editor.Text!).LineCount);
+            Assert.Equal(lines + 1, window.Editor.Document.LineCount);
             Assert.True(watch.Elapsed < TimeSpan.FromSeconds(10), $"{bytes} bytes took {watch.Elapsed}");
 
             window.GoToLine(lines / 2);
@@ -365,16 +418,14 @@ public class MainWindowTests
 
             window.ChangeLineEnding(LineEnding.Lf);
             Assert.Equal("one\ntwo\n", window.Editor.Text);
-            Assert.Equal("one\ntwo\n", window.Document.Text);
             Assert.Equal(LineEnding.Lf, window.Document.LineEnding);
             Assert.Equal(" Unix (LF)", window.LineEndingButton.Content);
-            Assert.Equal("\n", window.Editor.NewLine);
             Assert.True(window.Document.IsDirty);
             Assert.Equal("*crlf.txt - Spartanpad", window.Title);
             Assert.True(window.Editor.CanUndo);
 
             // Enter now inserts the chosen ending.
-            window.Editor.CaretIndex = window.Editor.Text!.Length;
+            window.Editor.CaretOffset = window.Editor.Text.Length;
             window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
             Assert.Equal("one\ntwo\n\n", window.Editor.Text);
 
@@ -395,13 +446,12 @@ public class MainWindowTests
         using (dir)
         {
             window.KeyTextInput("hello world");
-            window.Editor.SelectionStart = 0;
-            window.Editor.SelectionEnd = 5;
+            window.Editor.Select(0, 5);
             Assert.Equal("hello", window.Editor.SelectedText);
 
             // Clicking the menu bar moves the focus off the editor, as a menu click does.
             window.EncodingButton.Focus();
-            Assert.False(window.Editor.IsFocused);
+            Assert.False(window.Editor.TextArea.IsFocused);
             Assert.Equal("hello", window.Editor.SelectedText);
 
             window.RefreshEditStates();
@@ -413,7 +463,7 @@ public class MainWindowTests
             Assert.Equal("Cu_t", contextCut.Header);
             Assert.True(contextCut.IsEnabled);
 
-            window.Editor.ClearSelection();
+            window.Editor.TextArea.ClearSelection();
             window.RefreshEditStates();
             Assert.False(window.CutItem.IsEnabled);
             Assert.False(contextCut.IsEnabled);
@@ -429,7 +479,7 @@ public class MainWindowTests
         using (dir)
         {
             window.KeyTextInput("ab");
-            window.Editor.CaretIndex = 1;
+            window.Editor.CaretOffset = 1;
             window.KeyPressQwerty(PhysicalKey.F5, RawInputModifiers.None);
             string text = window.Editor.Text!;
             Assert.StartsWith("a", text);

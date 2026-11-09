@@ -4,5 +4,8 @@
              Name="Spartanpad">
   <Application.Styles>
     <FluentTheme />
+    <!-- AvaloniaEdit's control templates. Written in XAML so the include is resolved at compile
+         time; the code form loads at run time and does not survive NativeAOT trimming. -->
+    <StyleInclude Source="avares://AvaloniaEdit/Themes/Fluent/AvaloniaEdit.xaml" />
   </Application.Styles>
 </Application>

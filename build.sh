@@ -129,6 +129,7 @@ do_package() {
         local zip="$here/out/Spartanpad_${version}_$rid.zip"
         rm -f "$zip"
         cp "$here/LICENSE" "$here/out/$rid/LICENSE.txt"
+        cp "$here/THIRD-PARTY-NOTICES.txt" "$here/out/$rid/THIRD-PARTY-NOTICES.txt"
         cp "$here/README.md" "$here/out/$rid/README.md"
         (cd "$here/out/$rid" && zip -q -r -X "$zip" .) || fail "zip failed for $rid"
         say "packaged $zip ($(du -h "$zip" | cut -f1))"

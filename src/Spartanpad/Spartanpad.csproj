@@ -9,6 +9,11 @@
          target the host, and publish passes -r linux-x64 or -r win-x64. -->
     <PublishAot>true</PublishAot>
     <StripSymbols>true</StripSymbols>
+    <!-- No native debug info in Release: nothing that ships uses it (build.sh deletes the .pdb and
+         .dbg anyway), and lld-link 22.1.8's PDB writer segfaults on this program's object file
+         (exit code 139 in the win-x64 publish, since the editor control came in; the same link
+         without /DEBUG succeeds). Stack traces keep their method names: that is ILC's own metadata. -->
+    <DebugType Condition="'$(Configuration)' == 'Release'">none</DebugType>
     <BuiltInComInteropSupport>false</BuiltInComInteropSupport>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
@@ -26,6 +31,9 @@
     <PackageReference Include="Avalonia" Version="12.1.5" />
     <PackageReference Include="Avalonia.Desktop" Version="12.1.5" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.5" />
+    <!-- The editor control: lays out only the visible lines, so a file is limited by memory, not
+         by layout time (the Avalonia TextBox took about a second per megabyte). -->
+    <PackageReference Include="Avalonia.AvaloniaEdit" Version="12.0.0" />
     <!-- Lets `dotnet publish -r win-x64` link on Linux with lld-link and an xwin sysroot. Only
          active for win-* RIDs on a non-Windows host. -->
     <PackageReference Include="PublishAotCrossXWin" Version="1.2.0" />

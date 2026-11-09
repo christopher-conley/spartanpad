@@ -37,12 +37,12 @@ public class TextDocumentTests
         Assert.False(doc.IsDirty);
         Assert.Equal("Untitled - Spartanpad", doc.Title("Spartanpad"));
 
-        doc.SetText("x");
+        doc.NotifyChanged(textLength: 1);
         Assert.True(doc.IsDirty);
         Assert.Equal("*Untitled - Spartanpad", doc.Title("Spartanpad"));
 
         // Reference §5: an Untitled document that is empty again is not dirty.
-        doc.SetText(string.Empty);
+        doc.NotifyChanged(textLength: 0);
         Assert.False(doc.IsDirty);
         Assert.Equal("Untitled - Spartanpad", doc.Title("Spartanpad"));
     }
@@ -53,24 +53,26 @@ public class TextDocumentTests
         using var dir = new TempDir();
         string path = dir.File("a.txt");
         File.WriteAllText(path, "x");
-        TextDocument doc = TextDocument.Load(path, null, TextEncodingKind.Utf8);
-        doc.SetText(string.Empty);
+        var doc = new TextDocument(TextEncodingKind.Utf8);
+        doc.Load(path, null);
+        doc.NotifyChanged(textLength: 0);
         Assert.True(doc.IsDirty);
     }
 
     [Fact]
-    public void LoadDetectsEncodingAndLineEnding()
+    public void LoadReturnsTheTextAndDetectsEncodingAndLineEnding()
     {
         using var dir = new TempDir();
         string path = dir.File("a.txt");
         File.WriteAllBytes(path, TextCodec.Encode("one\nтwo", TextEncodingKind.Utf16LE));
 
-        TextDocument doc = TextDocument.Load(path, null, TextEncodingKind.Utf8);
-        Assert.Equal("one\nтwo", doc.Text);
+        var doc = new TextDocument(TextEncodingKind.Utf8);
+        Assert.Equal("one\nтwo", doc.Load(path, null));
         Assert.Equal(TextEncodingKind.Utf16LE, doc.Encoding);
         Assert.Equal(LineEnding.Lf, doc.LineEnding);
         Assert.Equal("a.txt", doc.DisplayName);
         Assert.False(doc.IsDirty);
+        Assert.False(doc.IsLogFile);
     }
 
     [Fact]
@@ -80,10 +82,11 @@ public class TextDocumentTests
         string path = dir.File("a.txt");
         File.WriteAllBytes(path, [(byte)'c', (byte)'a', (byte)'f', 0xC3, 0xA9]);
 
-        Assert.Equal("café", TextDocument.Load(path, null, TextEncodingKind.Utf8).Text);
-        TextDocument ansi = TextDocument.Load(path, TextEncodingKind.Ansi, TextEncodingKind.Utf8);
+        Assert.Equal("café", new TextDocument(TextEncodingKind.Utf8).Load(path, null));
+        var ansi = new TextDocument(TextEncodingKind.Utf8);
+        string text = ansi.Load(path, TextEncodingKind.Ansi);
         Assert.Equal(TextEncodingKind.Ansi, ansi.Encoding);
-        Assert.Equal(5, ansi.Text.Length);
+        Assert.Equal(5, text.Length);
     }
 
     [Fact]
@@ -91,15 +94,15 @@ public class TextDocumentTests
     {
         using var dir = new TempDir();
         var doc = new TextDocument(TextEncodingKind.Utf8);
-        doc.SetText("héllo");
+        doc.NotifyChanged(textLength: 5);
         string path = dir.File("out.txt");
 
-        doc.Save(path, TextEncodingKind.Utf8Bom);
+        doc.Save(path, "héllo", TextEncodingKind.Utf8Bom);
         Assert.False(doc.IsDirty);
         Assert.Equal(TextEncodingKind.Utf8Bom, doc.Encoding);
         Assert.Equal(System.IO.Path.GetFullPath(path), doc.FilePath);
         Assert.Equal(new byte[] { 0xEF, 0xBB, 0xBF }, File.ReadAllBytes(path).Take(3).ToArray());
-        Assert.Equal("héllo", TextDocument.Load(path, null, TextEncodingKind.Utf8).Text);
+        Assert.Equal("héllo", new TextDocument(TextEncodingKind.Utf8).Load(path, null));
     }
 
     [Fact]
@@ -107,25 +110,32 @@ public class TextDocumentTests
     {
         using var dir = new TempDir();
         var doc = new TextDocument(TextEncodingKind.Utf8);
-        doc.SetText("世");
+        doc.NotifyChanged(textLength: 1);
         string path = dir.File("out.txt");
-        Assert.Throws<AnsiLossException>(() => doc.Save(path, TextEncodingKind.Ansi));
+        Assert.Throws<AnsiLossException>(() => doc.Save(path, "世", TextEncodingKind.Ansi));
         Assert.True(doc.IsDirty);
         Assert.False(File.Exists(path));
 
-        doc.Save(path, TextEncodingKind.Ansi, allowLossyAnsi: true);
+        doc.Save(path, "世", TextEncodingKind.Ansi, allowLossyAnsi: true);
         Assert.False(doc.IsDirty);
         Assert.Single(File.ReadAllBytes(path));
     }
 
     [Fact]
-    public void LogFileGetsAStampAppended()
+    public void LogFilesAreRecognizedAndStampedInTheirOwnLineEnding()
     {
+        using var dir = new TempDir();
+        string path = dir.File("j.log");
+        File.WriteAllText(path, ".LOG\nold");
         var doc = new TextDocument(TextEncodingKind.Utf8);
-        doc.SetText(".LOG\r\nold");
+        doc.Load(path, null);
         Assert.True(doc.IsLogFile);
-        doc.AppendLogStamp("4:52 PM 11/8/2026");
-        Assert.Equal(".LOG\r\nold\r\n4:52 PM 11/8/2026\r\n", doc.Text);
+        Assert.Equal(LineEnding.Lf, doc.LineEnding);
+        Assert.Equal("\n4:52 PM 11/8/2026\n", doc.LogStamp("4:52 PM 11/8/2026"));
+
+        File.WriteAllText(path, "not a log");
+        doc.Load(path, null);
+        Assert.False(doc.IsLogFile);
     }
 
     [Fact]
@@ -138,7 +148,7 @@ public class TextDocumentTests
             f.SetLength(TextDocument.MaxFileBytes);
         }
 
-        var e = Assert.Throws<FileTooLargeException>(() => TextDocument.Load(path, null, TextEncodingKind.Utf8));
+        var e = Assert.Throws<FileTooLargeException>(() => new TextDocument(TextEncodingKind.Utf8).Load(path, null));
         Assert.Equal(TextDocument.MaxFileBytes, e.Length);
     }
 
@@ -148,12 +158,20 @@ public class TextDocumentTests
         using var dir = new TempDir();
         string path = dir.File("a.txt");
         File.WriteAllText(path, "x\ny", Encoding.ASCII);
-        TextDocument doc = TextDocument.Load(path, null, TextEncodingKind.Utf8);
+        var doc = new TextDocument(TextEncodingKind.Utf8);
+        doc.Load(path, null);
+        doc.NotifyChanged(textLength: 4);
         doc.Reset(TextEncodingKind.Utf16LE);
         Assert.True(doc.IsUntitled);
-        Assert.Equal(string.Empty, doc.Text);
+        Assert.False(doc.IsDirty);
         Assert.Equal(TextEncodingKind.Utf16LE, doc.Encoding);
         Assert.Equal(LineEnding.Crlf, doc.LineEnding);
+    }
+
+    [Fact]
+    public void StatusBarPositionTextMatchesTheReference()
+    {
+        Assert.Equal(" Ln 1, Col 3", ReferenceStrings.LineColumn(1, 3));
     }
 }
 

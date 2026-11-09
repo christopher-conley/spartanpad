@@ -53,8 +53,15 @@ Print (and `/P`, `/PT`) shows a message saying it's not implemented yet.
 - The encoding is chosen from the status bar, not from a combo in the file dialogs.
 - The line ending is a selector that converts the document; Notepad only displayed it.
 - The Font dialog is Spartanpad's own (Avalonia doesn't have one).
-- Files of 8 MiB or more are refused for now; Notepad allowed 1 GiB. This text box is not built for that.
+- The editor is [AvaloniaEdit](https://github.com/AvaloniaUI/AvaloniaEdit), which lays out only
+  the lines on screen, so opening a file costs about a second per 100 MB and scrolling a
+  multi-million-line log is instant. The limit is Notepad's 1 GiB. The whole file is held in
+  memory, as Notepad did, and opening costs about eight times the file size in RAM (measured: a
+  1 GB log opened in 12 s and peaked at 9 GB), so a file near the limit needs a desktop, not a
+  default 4 GB Windows Sandbox.
 - Undo is multi-level; Notepad's was a single toggle.
+- Column selection: Alt+drag, or Alt+Shift with the arrow keys, selects a box; typing or pasting
+  then edits every selected line.
 - The theme follows the operating system; Notepad was always light.
 - Search with Bing became Search with Kagi.
 - The Store banner, Enterprise Data Protection, telemetry and the Restart Manager autosave are
@@ -109,8 +116,8 @@ suffix (`2026.11.09.02-test1`) publishes as a prerelease; a tag that does not ma
 ## Layout
 
 ```
-src/Spartanpad.Core/   the document, encodings, settings, search, command line, menu entry (no UI; unit tested)
-src/Spartanpad/        the Avalonia application: main window, dialogs; res/ holds the icon
+src/Spartanpad.Core/   the document's file, encodings, settings, search, command line, menu entry (no UI; unit tested)
+src/Spartanpad/        the Avalonia application: main window (AvaloniaEdit editor), dialogs; res/ holds the icon
 tests/                 xunit tests for Core and headless UI tests for the window
 scripts/               the Windows Sandbox configuration
 ```
@@ -120,7 +127,10 @@ The document model is separate from the window so that a tabbed interface can la
 ## License
 
 MIT. See [LICENSE](LICENSE). The MIT grant covers the code and everything else in this repository
-except the application icon, below.
+except the application icon, below. The libraries linked into the executables (the .NET runtime,
+Avalonia, AvaloniaEdit, SkiaSharp with Skia, HarfBuzzSharp with HarfBuzz, and ANGLE on Windows) are
+MIT or BSD licensed; their notices are in [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt), which
+ships in every zip.
 
 ## Credits
 

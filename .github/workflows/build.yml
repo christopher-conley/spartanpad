@@ -4,7 +4,7 @@
 #
 # Artifacts: Spartanpad-<sha>-linux-x64 and Spartanpad-<sha>-win-x64, each holding the zip that
 # ships, Spartanpad_<VERSION>_<rid>.zip (the executable, the native Skia and HarfBuzz libraries
-# beside it, LICENSE.txt and README.md), as build.sh package makes it. release.yml publishes the
+# beside it, LICENSE.txt, THIRD-PARTY-NOTICES.txt and README.md), as build.sh package makes it. release.yml publishes the
 # artifacts of the build that already ran for a tagged commit rather than building again, so every
 # commit that may be tagged must get a build of its own: no path filter here, and no
 # cancel-in-progress (a build canceled by the next push would leave its commit with nothing to
@@ -80,7 +80,7 @@ jobs:
           VERSION=$(tr -d '[:space:]' < VERSION)
           ZIP="out/Spartanpad_${VERSION}_linux-x64.zip"
           [ -f "$ZIP" ] || { echo "::error::no $ZIP"; ls -l out; exit 1; }
-          EXPECTED=$(printf '%s\n' LICENSE.txt README.md Spartanpad libHarfBuzzSharp.so libSkiaSharp.so)
+          EXPECTED=$(printf '%s\n' LICENSE.txt README.md Spartanpad THIRD-PARTY-NOTICES.txt libHarfBuzzSharp.so libSkiaSharp.so)
           [ "$(unzip -Z1 "$ZIP" | LC_ALL=C sort)" = "$EXPECTED" ] || { echo "::error::$ZIP does not hold exactly the files that ship"; unzip -Z1 "$ZIP"; exit 1; }
           { echo "### linux-x64 ($VERSION)"; ls -l out/linux-x64 "$ZIP" | sed 's/^/    /'; } | tee -a "$GITHUB_STEP_SUMMARY"
 
@@ -168,7 +168,7 @@ jobs:
           VERSION=$(tr -d '[:space:]' < VERSION)
           ZIP="out/Spartanpad_${VERSION}_win-x64.zip"
           [ -f "$ZIP" ] || { echo "::error::no $ZIP"; ls -l out; exit 1; }
-          EXPECTED=$(printf '%s\n' LICENSE.txt README.md Spartanpad.exe av_libglesv2.dll libHarfBuzzSharp.dll libSkiaSharp.dll)
+          EXPECTED=$(printf '%s\n' LICENSE.txt README.md Spartanpad.exe THIRD-PARTY-NOTICES.txt av_libglesv2.dll libHarfBuzzSharp.dll libSkiaSharp.dll)
           [ "$(unzip -Z1 "$ZIP" | LC_ALL=C sort)" = "$EXPECTED" ] || { echo "::error::$ZIP does not hold exactly the files that ship"; unzip -Z1 "$ZIP"; exit 1; }
           { echo "### win-x64 ($VERSION)"; ls -l out/win-x64 "$ZIP" | sed 's/^/    /'; } | tee -a "$GITHUB_STEP_SUMMARY"
 

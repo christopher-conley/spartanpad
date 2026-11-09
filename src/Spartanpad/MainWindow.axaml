@@ -1,11 +1,12 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ae="https://github.com/avaloniaui/avaloniaedit"
         x:Class="Spartanpad.MainWindow"
         Title="Untitled - Spartanpad"
         Width="900" Height="600" MinWidth="360" MinHeight="240"
         DragDrop.AllowDrop="True">
   <DockPanel>
-    <Menu DockPanel.Dock="Top">
+    <Menu Name="MainMenu" DockPanel.Dock="Top">
       <MenuItem Header="_File">
         <MenuItem Header="_New" InputGesture="Ctrl+N" Click="OnNew" />
         <MenuItem Header="New _Window" InputGesture="Ctrl+Shift+N" Click="OnNewWindow" />
@@ -89,22 +90,14 @@
       </Grid>
     </Border>
 
-    <TextBox Name="Editor"
-             AcceptsReturn="True" AcceptsTab="True"
-             TextWrapping="NoWrap"
-             ScrollViewer.VerticalScrollBarVisibility="Visible"
-             ScrollViewer.HorizontalScrollBarVisibility="Auto"
-             CornerRadius="0" BorderThickness="0" Padding="4,2"
-             ClearSelectionOnLostFocus="False" IsInactiveSelectionHighlightEnabled="True">
-      <TextBox.Styles>
-        <!-- The editor fills the window; the theme's focus border around it is noise. -->
-        <Style Selector="TextBox:focus /template/ Border#PART_BorderElement">
-          <Setter Property="BorderThickness" Value="0" />
-        </Style>
-        <Style Selector="TextBox:pointerover /template/ Border#PART_BorderElement">
-          <Setter Property="BorderThickness" Value="0" />
-        </Style>
-      </TextBox.Styles>
-    </TextBox>
+    <!-- The editor. AvaloniaEdit lays out only the visible lines, so a document is limited by
+         memory, not by layout time. Its Notepad-like settings and the removal of its own search
+         panel are in ConfigureEditor. -->
+    <ae:TextEditor Name="Editor"
+                   ShowLineNumbers="False"
+                   WordWrap="False"
+                   HorizontalScrollBarVisibility="Auto"
+                   VerticalScrollBarVisibility="Visible"
+                   Padding="4,2" />
   </DockPanel>
 </Window>

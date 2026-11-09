@@ -96,42 +96,6 @@ public class TextSearchTests
         Assert.Equal("aaaaaa", result);
     }
 }
-
-public class LineIndexTests
-{
-    [Fact]
-    public void PositionsAreOneBasedAndBreakOnAnyLineEnding()
-    {
-        var index = new LineIndex("ab\r\ncd\nef\rg");
-        Assert.Equal(4, index.LineCount);
-        Assert.Equal((1, 1), index.Position(0));
-        Assert.Equal((1, 3), index.Position(2));
-        Assert.Equal((2, 1), index.Position(4));
-        Assert.Equal((2, 3), index.Position(6));
-        Assert.Equal((3, 1), index.Position(7));
-        Assert.Equal((4, 1), index.Position(10));
-        Assert.Equal((4, 2), index.Position(11));
-        Assert.Equal(4, index.StartOf(1));
-        Assert.Equal(-1, index.StartOf(4));
-    }
-
-    [Fact]
-    public void TabIsOneColumn()
-    {
-        var index = new LineIndex("\tx");
-        Assert.Equal((1, 3), index.Position(2));
-        Assert.Equal(" Ln 1, Col 3", LineIndex.StatusText(1, 3));
-    }
-
-    [Fact]
-    public void EmptyTextHasOneLine()
-    {
-        var index = new LineIndex(string.Empty);
-        Assert.Equal(1, index.LineCount);
-        Assert.Equal((1, 1), index.Position(0));
-    }
-}
-
 public class ZoomTests
 {
     [Fact]

@@ -9,13 +9,15 @@ using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Spartanpad.Core;
 using Spartanpad.Views;
+using EditorDocument = AvaloniaEdit.Document.TextDocument;
 
 namespace Spartanpad;
 
 /// <summary>
-/// The Notepad window: menu, one editor, status bar. Behavior follows the local reference notes;
-/// the document itself lives in <see cref="TextDocument"/> so that a later tab strip can hold
-/// several of them.
+/// The Notepad window: menu, one editor, status bar. Behavior follows the local reference notes.
+/// The text lives in the editor control (AvaloniaEdit, which lays out only the visible lines);
+/// <see cref="TextDocument"/> holds the file, encoding, line ending and dirty state, so that a
+/// later tab strip can hold several of them.
 /// </summary>
 public partial class MainWindow : Window
 {
@@ -30,11 +32,11 @@ public partial class MainWindow : Window
     private readonly CommandLine _commandLine;
     private readonly TextDocument _document;
 
-    private LineIndex? _lineIndex;
     private int _zoomPercent = Zoom.Default;
     private bool _loadingText;
     private bool _closeConfirmed;
     private bool _menuEntryOffered;
+    private bool _altPointerGesture;
     private FindDialog? _findDialog;
     private ReplaceDialog? _replaceDialog;
 
@@ -52,12 +54,23 @@ public partial class MainWindow : Window
 
         InitializeComponent();
         Icon = Icons.Window();
+        ConfigureEditor();
 
         Editor.TextChanged += OnEditorTextChanged;
-        Editor.PropertyChanged += OnEditorPropertyChanged;
+        Editor.TextArea.Caret.PositionChanged += OnEditorCaretMoved;
+        Editor.TextArea.SelectionChanged += OnEditorCaretMoved;
+        Editor.TextArea.TextEntering += OnEditorTextEntering;
         Editor.AddHandler(PointerWheelChangedEvent, OnEditorPointerWheel, RoutingStrategies.Tunnel);
-        AddHandler(DragDrop.DragOverEvent, OnDragOver);
-        AddHandler(DragDrop.DropEvent, OnDrop);
+        // Box selection with Alt and the mouse: Avalonia opens the menu bar when Alt is released
+        // without another key having been pressed meanwhile, and a mouse press does not count. These
+        // tunnel handlers claim that Alt release before Avalonia's own sees it (and close the menu if
+        // the order ever turns out the other way), so the keyboard stays with the editor.
+        Editor.TextArea.AddHandler(PointerPressedEvent, OnEditorPointerPressed, RoutingStrategies.Tunnel, handledEventsToo: true);
+        AddHandler(KeyDownEvent, OnWindowKeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
+        AddHandler(KeyUpEvent, OnWindowKeyUp, RoutingStrategies.Tunnel, handledEventsToo: true);
+        // The text area takes drops of text itself and marks them handled; dropped files are the window's.
+        AddHandler(DragDrop.DragOverEvent, OnDragOver, RoutingStrategies.Bubble, handledEventsToo: true);
+        AddHandler(DragDrop.DropEvent, OnDrop, RoutingStrategies.Bubble, handledEventsToo: true);
 
         BuildEncodingFlyout();
         BuildLineEndingFlyout();
@@ -67,7 +80,6 @@ public partial class MainWindow : Window
         ApplyWordWrap(_settings.WordWrap);
         ApplyStatusBarVisibility(_settings.StatusBar);
         ApplyFont();
-        Editor.NewLine = _document.LineEnding.NewLine();
         UpdateTitle();
         UpdateStatusBar();
     }
@@ -95,7 +107,7 @@ public partial class MainWindow : Window
             Height = _settings.WindowHeight;
         }
 
-        Editor.Focus();
+        FocusEditor();
         Dispatcher.UIThread.Post(() => _ = HandleCommandLineAsync(), DispatcherPriority.Background);
     }
 
@@ -196,33 +208,114 @@ public partial class MainWindow : Window
         Bind("Ctrl+D0", () => SetZoom(Zoom.Default));
         Bind("Ctrl+NumPad0", () => SetZoom(Zoom.Default));
 
-        // MAINACC: the text box handles Ctrl+Z/X/C/V/A itself; these are the extra bindings.
+        // MAINACC: the editor handles Ctrl+Z/X/C/V/A itself; these are the extra bindings.
         Bind("Ctrl+Insert", () => Editor.Copy());
         Bind("Alt+Back", () => Editor.Undo());
         Bind("F5", InsertTimeDate);
     }
 
+    // ------------------------------------------------------------------ the editor control
+
+    /// <summary>
+    /// AvaloniaEdit is a code editor by default; this makes it behave like the reference's edit
+    /// control: no auto-indent, no links, tab stops every 8 characters, and none of its own Find
+    /// (its search panel would take Ctrl+F, Ctrl+H and F3 before the window's bindings see them).
+    /// The panel installs itself when the template is applied, so it is removed right after that.
+    /// One deliberate extra over the reference: column (box) selection, Alt+drag or Alt+Shift+arrows,
+    /// where typing edits every selected line.
+    /// </summary>
+    private void ConfigureEditor()
+    {
+        Editor.Options.EnableHyperlinks = false;
+        Editor.Options.EnableEmailHyperlinks = false;
+        Editor.Options.EnableRectangularSelection = true;
+        Editor.Options.ShowBoxForControlCharacters = false;
+        Editor.Options.AllowScrollBelowDocument = false;
+        Editor.Options.CutCopyWholeLine = false;
+        Editor.Options.HighlightCurrentLine = false;
+        Editor.Options.AcceptsTab = true;
+        Editor.Options.ConvertTabsToSpaces = false;
+        Editor.Options.IndentationSize = 8;
+        Editor.TextArea.IndentationStrategy = null;
+        Editor.TemplateApplied += (_, _) => Editor.SearchPanel?.Uninstall();
+    }
+
     // ------------------------------------------------------------------ editor events
 
-    private void OnEditorTextChanged(object? sender, TextChangedEventArgs e)
+    // Raised synchronously for every change, including the swap of documents in ShowDocument.
+    private void OnEditorTextChanged(object? sender, EventArgs e)
     {
-        _lineIndex = null;
         if (_loadingText)
         {
             return;
         }
 
-        _document.SetText(Editor.Text ?? string.Empty);
+        _document.NotifyChanged(Editor.Document.TextLength);
         UpdateTitle();
         UpdateStatusBar();
     }
 
-    private void OnEditorPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
+    private void OnEditorCaretMoved(object? sender, EventArgs e) => UpdateLineColumn();
+
+    // Enter: the editor would copy the line ending of the current line, falling back to the
+    // platform's; the reference inserts the document's. Replacing the selection through the
+    // document keeps the caret after the inserted text and the change on the undo stack.
+    private void OnEditorTextEntering(object? sender, TextInputEventArgs e)
     {
-        if (e.Property == TextBox.CaretIndexProperty || e.Property == TextBox.SelectionStartProperty || e.Property == TextBox.SelectionEndProperty)
+        if (e.Text is "\n" or "\r" or "\r\n")
         {
-            UpdateLineColumn();
+            e.Handled = true;
+            ReplaceSelection(_document.LineEnding.NewLine());
         }
+    }
+
+    /// <summary>
+    /// The editor control is not focusable itself (AvaloniaEdit keeps the focus in its text area),
+    /// so this is what "focus the editor" means everywhere in the window.
+    /// </summary>
+    private void FocusEditor() => Editor.TextArea.Focus();
+
+    /// <summary>Replaces the selection (or inserts at the caret) and leaves the caret after the new text, unselected.</summary>
+    private void ReplaceSelection(string text)
+    {
+        int start = Editor.SelectionStart;
+        int length = Editor.SelectionLength;
+        Editor.Document.Replace(start, length, text);
+        Editor.TextArea.ClearSelection();
+        Editor.CaretOffset = start + text.Length;
+    }
+
+    private void OnEditorPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (e.KeyModifiers.HasFlag(KeyModifiers.Alt))
+        {
+            _altPointerGesture = true;
+        }
+    }
+
+    private void OnWindowKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key is Key.LeftAlt or Key.RightAlt)
+        {
+            _altPointerGesture = false;
+        }
+    }
+
+    private void OnWindowKeyUp(object? sender, KeyEventArgs e)
+    {
+        if (e.Key is not (Key.LeftAlt or Key.RightAlt) || !_altPointerGesture)
+        {
+            return;
+        }
+
+        _altPointerGesture = false;
+        e.Handled = true;
+        if (MainMenu.IsOpen)
+        {
+            MainMenu.Close();
+        }
+
+        FocusEditor();
     }
 
     private void OnEditorPointerWheel(object? sender, PointerWheelEventArgs e)
@@ -234,9 +327,14 @@ public partial class MainWindow : Window
         }
     }
 
+    // Runs after the text area's own handler (handledEventsToo), which decides for dragged text;
+    // only a dragged file is the window's to accept.
     private void OnDragOver(object? sender, DragEventArgs e)
     {
-        e.DragEffects = e.DataTransfer.Contains(DataFormat.File) ? DragDropEffects.Copy : DragDropEffects.None;
+        if (e.DataTransfer.Contains(DataFormat.File))
+        {
+            e.DragEffects = DragDropEffects.Copy;
+        }
     }
 
     private void OnDrop(object? sender, DragEventArgs e)
@@ -251,8 +349,6 @@ public partial class MainWindow : Window
 
     // ------------------------------------------------------------------ title and status bar
 
-    private LineIndex Lines => _lineIndex ??= new LineIndex(Editor.Text ?? string.Empty);
-
     private void UpdateTitle() => Title = _document.Title(AppName);
 
     public void UpdateStatusBar()
@@ -263,10 +359,11 @@ public partial class MainWindow : Window
         EncodingButton.Content = _document.Encoding.DisplayName();
     }
 
+    // The caret's Column counts characters from the line start (a tab is one), as the reference does.
     private void UpdateLineColumn()
     {
-        (int line, int column) = Lines.Position(Editor.CaretIndex);
-        StatusLineColumn.Text = LineIndex.StatusText(line, column);
+        AvaloniaEdit.Editing.Caret caret = Editor.TextArea.Caret;
+        StatusLineColumn.Text = ReferenceStrings.LineColumn(caret.Line, caret.Column);
     }
 
     private void SetStatusMessage(string text) => StatusMessage.Text = text;
@@ -315,20 +412,18 @@ public partial class MainWindow : Window
             return;
         }
 
-        string converted = LineEndingExtensions.Normalize(Editor.Text ?? string.Empty, ending);
+        string text = Editor.Text;
+        string converted = LineEndingExtensions.Normalize(text, ending);
         _document.LineEnding = ending;
-        Editor.NewLine = ending.NewLine();
-        if (!ReferenceEquals(converted, Editor.Text))
+        if (!ReferenceEquals(converted, text))
         {
-            int caret = Editor.CaretIndex;
-            Editor.SelectAll();
-            Editor.SelectedText = converted;
-            Editor.CaretIndex = Math.Min(caret, converted.Length);
-            Editor.ClearSelection();
+            int caret = Editor.CaretOffset;
+            Editor.Document.Replace(0, Editor.Document.TextLength, converted);
+            Editor.TextArea.ClearSelection();
+            Editor.CaretOffset = Math.Min(caret, converted.Length);
         }
 
-        _document.SetText(Editor.Text ?? string.Empty);
-        _document.MarkDirty();
+        _document.NotifyChanged(Editor.Document.TextLength);
         UpdateTitle();
         UpdateStatusBar();
     }
@@ -401,8 +496,8 @@ public partial class MainWindow : Window
 
     private void ApplyWordWrap(bool wrap)
     {
-        Editor.TextWrapping = wrap ? TextWrapping.Wrap : TextWrapping.NoWrap;
-        ScrollViewer.SetHorizontalScrollBarVisibility(Editor, wrap ? Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled : Avalonia.Controls.Primitives.ScrollBarVisibility.Auto);
+        Editor.WordWrap = wrap;
+        Editor.HorizontalScrollBarVisibility = wrap ? Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled : Avalonia.Controls.Primitives.ScrollBarVisibility.Auto;
         WordWrapItem.IsChecked = wrap;
     }
 
@@ -415,25 +510,24 @@ public partial class MainWindow : Window
 
     // ------------------------------------------------------------------ loading text into the editor
 
-    private void ShowDocument()
+    /// <summary>
+    /// Puts <paramref name="text"/> in the editor as a fresh document, with an empty undo stack so
+    /// the previous document cannot be undone back, and the caret at the start.
+    /// </summary>
+    private void ShowDocument(string text)
     {
         _loadingText = true;
         try
         {
-            Editor.Text = _document.Text;
-            Editor.NewLine = _document.LineEnding.NewLine();
-            Editor.CaretIndex = 0;
-            Editor.ClearSelection();
-            // Disabling undo empties the stack, so the previous document cannot be undone back.
-            Editor.IsUndoEnabled = false;
-            Editor.IsUndoEnabled = true;
+            Editor.Document = new EditorDocument(text);
+            Editor.CaretOffset = 0;
+            Editor.TextArea.ClearSelection();
         }
         finally
         {
             _loadingText = false;
         }
 
-        _lineIndex = null;
         SetStatusMessage(string.Empty);
         UpdateTitle();
         UpdateStatusBar();
@@ -469,7 +563,7 @@ public partial class MainWindow : Window
         }
 
         _document.Reset(_settings.DefaultEncoding);
-        ShowDocument();
+        ShowDocument(string.Empty);
     }
 
     private void NewWindow()
@@ -567,18 +661,14 @@ public partial class MainWindow : Window
                 File.WriteAllBytes(path, []);
             }
 
-            _document.Reload(path, forced);
-            ShowDocument();
+            ShowDocument(_document.Load(path, forced));
 
             if (_document.IsLogFile)
             {
-                _document.AppendLogStamp(TimeDateStamp.Format(DateTime.Now));
-                _loadingText = true;
-                Editor.Text = _document.Text;
-                _loadingText = false;
-                Editor.CaretIndex = Editor.Text?.Length ?? 0;
-                UpdateTitle();
-                UpdateStatusBar();
+                // Part of what was opened, not an edit to undo; the document is dirty, as in the reference.
+                Editor.Document.Insert(Editor.Document.TextLength, _document.LogStamp(TimeDateStamp.Format(DateTime.Now)));
+                Editor.Document.UndoStack.ClearAll();
+                Editor.CaretOffset = Editor.Document.TextLength;
             }
 
             return true;
@@ -638,7 +728,8 @@ public partial class MainWindow : Window
     private async Task<bool> WriteAsync(string path, TextEncodingKind encoding)
     {
         bool allowLossy = false;
-        if (encoding == TextEncodingKind.Ansi && !TextCodec.CanEncodeAnsi(_document.Text))
+        string text = Editor.Text;
+        if (encoding == TextEncodingKind.Ansi && !TextCodec.CanEncodeAnsi(text))
         {
             string? answer = await MessageDialog.ShowAsync(this, AppName, string.Format(ReferenceStrings.AnsiLossWarning, path), "OK", "Cancel");
             if (answer != "OK")
@@ -651,7 +742,7 @@ public partial class MainWindow : Window
 
         try
         {
-            _document.Save(path, encoding, allowLossy);
+            _document.Save(path, text, encoding, allowLossy);
             UpdateTitle();
             UpdateStatusBar();
         }
@@ -760,7 +851,7 @@ public partial class MainWindow : Window
             item.Click += (_, _) =>
             {
                 action();
-                Editor.Focus();
+                FocusEditor();
             };
             return item;
         }
@@ -792,8 +883,8 @@ public partial class MainWindow : Window
     /// <summary>The Edit menu rules from the reference (§1), applied to both menus.</summary>
     internal void RefreshEditStates()
     {
-        bool hasSelection = Editor.SelectionStart != Editor.SelectionEnd;
-        bool hasText = !string.IsNullOrEmpty(Editor.Text);
+        bool hasSelection = Editor.SelectionLength > 0;
+        bool hasText = Editor.Document.TextLength > 0;
         CutItem.IsEnabled = _ctxCut.IsEnabled = hasSelection;
         CopyItem.IsEnabled = _ctxCopy.IsEnabled = hasSelection;
         DeleteItem.IsEnabled = _ctxDelete.IsEnabled = hasSelection;
@@ -825,16 +916,16 @@ public partial class MainWindow : Window
 
     private void DeleteSelection()
     {
-        if (Editor.SelectionStart != Editor.SelectionEnd)
+        if (Editor.SelectionLength > 0)
         {
-            Editor.SelectedText = string.Empty;
+            ReplaceSelection(string.Empty);
         }
     }
 
     private void InsertTimeDate()
     {
-        Editor.SelectedText = TimeDateStamp.Format(DateTime.Now);
-        Editor.Focus();
+        ReplaceSelection(TimeDateStamp.Format(DateTime.Now));
+        FocusEditor();
     }
 
     private void SearchWithKagi()
@@ -860,29 +951,26 @@ public partial class MainWindow : Window
             return;
         }
 
-        (int line, _) = Lines.Position(Editor.CaretIndex);
-        int? target = await new GoToDialog(line, Lines.LineCount).ShowDialog<int?>(this);
+        int? target = await new GoToDialog(Editor.TextArea.Caret.Line, Editor.Document.LineCount).ShowDialog<int?>(this);
         if (target is int t)
         {
             GoToLine(t);
         }
 
-        Editor.Focus();
+        FocusEditor();
     }
 
     /// <summary>Moves the caret to the start of 1-based <paramref name="line"/> (reference <c>FUN_14000d100</c>).</summary>
     public void GoToLine(int line)
     {
-        int start = Lines.StartOf(line - 1);
-        if (start < 0)
+        if (line < 1 || line > Editor.Document.LineCount)
         {
             return;
         }
 
-        Editor.ClearSelection();
-        Editor.CaretIndex = start;
-        Editor.SelectionStart = start;
-        Editor.SelectionEnd = start;
+        Editor.TextArea.ClearSelection();
+        Editor.CaretOffset = Editor.Document.GetLineByNumber(line).Offset;
+        Editor.TextArea.Caret.BringCaretToView();
         UpdateLineColumn();
     }
 
@@ -908,7 +996,7 @@ public partial class MainWindow : Window
                 _findDialog = null;
             }
 
-            Editor.Focus();
+            FocusEditor();
         };
         _findDialog = dialog;
         dialog.Show(this);
@@ -937,7 +1025,7 @@ public partial class MainWindow : Window
                 _replaceDialog = null;
             }
 
-            Editor.Focus();
+            FocusEditor();
         };
         _replaceDialog = dialog;
         dialog.Show(this);
@@ -1000,9 +1088,9 @@ public partial class MainWindow : Window
             return false;
         }
 
-        string text = Editor.Text ?? string.Empty;
-        int selStart = Math.Min(Editor.SelectionStart, Editor.SelectionEnd);
-        int selEnd = Math.Max(Editor.SelectionStart, Editor.SelectionEnd);
+        string text = Editor.Text;
+        int selStart = Editor.SelectionStart;
+        int selEnd = selStart + Editor.SelectionLength;
         SearchMatch? match = TextSearch.Find(text, _settings.SearchString, selStart, selEnd, forward, _settings.MatchCase, _settings.WrapAround);
         if (match is SearchMatch m)
         {
@@ -1018,11 +1106,9 @@ public partial class MainWindow : Window
 
     private void Select(int index, int length)
     {
-        // Setting CaretIndex collapses the selection onto the caret, so the caret goes first
-        // (to the end of the match) and the selection start is widened back afterwards.
-        Editor.CaretIndex = index + length;
-        Editor.SelectionStart = index;
-        Editor.SelectionEnd = index + length;
+        Editor.Select(index, length);
+        Editor.CaretOffset = index + length;
+        Editor.TextArea.Caret.BringCaretToView();
         UpdateLineColumn();
     }
 
@@ -1030,12 +1116,12 @@ public partial class MainWindow : Window
     {
         RememberSearch(request.Find);
         _settings.ReplaceString = request.Replacement;
-        string text = Editor.Text ?? string.Empty;
-        int selStart = Math.Min(Editor.SelectionStart, Editor.SelectionEnd);
-        int selEnd = Math.Max(Editor.SelectionStart, Editor.SelectionEnd);
+        string text = Editor.Text;
+        int selStart = Editor.SelectionStart;
+        int selEnd = selStart + Editor.SelectionLength;
         if (TextSearch.SelectionMatches(text, request.Find.Pattern, selStart, selEnd, request.Find.MatchCase))
         {
-            Editor.SelectedText = request.Replacement;
+            ReplaceSelection(request.Replacement);
             Select(selStart, request.Replacement.Length);
         }
 
@@ -1046,19 +1132,13 @@ public partial class MainWindow : Window
     {
         RememberSearch(request.Find);
         _settings.ReplaceString = request.Replacement;
-        string text = Editor.Text ?? string.Empty;
-        (string replaced, int count) = TextSearch.ReplaceAll(text, request.Find.Pattern, request.Replacement, request.Find.MatchCase);
+        (string replaced, int count) = TextSearch.ReplaceAll(Editor.Text, request.Find.Pattern, request.Replacement, request.Find.MatchCase);
         if (count > 0)
         {
-            // Through the text-input path, so the replacement is one undo step and the history
-            // before it survives (a programmatic Text set clears the undo stack). The text box
-            // raises TextChanged on a later dispatcher job, so the document is updated here too.
-            Editor.SelectAll();
-            Editor.SelectedText = replaced;
-            _document.SetText(Editor.Text ?? replaced);
-            Editor.CaretIndex = 0;
-            Editor.ClearSelection();
-            UpdateTitle();
+            // One replace of the whole text: one undo step, with the history before it intact.
+            Editor.Document.Replace(0, Editor.Document.TextLength, replaced);
+            Editor.CaretOffset = 0;
+            Editor.TextArea.ClearSelection();
         }
 
         SetStatusMessage(string.Empty);
@@ -1113,9 +1193,9 @@ public partial class MainWindow : Window
 
     private void OnExit(object? sender, RoutedEventArgs e) => Close();
 
-    // The edit commands run with the selection the text box kept while the menu had the
-    // focus (ClearSelectionOnLostFocus is off), then hand the focus back to the editor.
-    private void OnUndo(object? sender, RoutedEventArgs e) => WithEditor(Editor.Undo);
+    // The edit commands run with the selection the editor kept while the menu had the focus,
+    // then hand the focus back to the editor.
+    private void OnUndo(object? sender, RoutedEventArgs e) => WithEditor(() => Editor.Undo());
 
     private void OnCut(object? sender, RoutedEventArgs e) => WithEditor(Editor.Cut);
 
@@ -1128,7 +1208,7 @@ public partial class MainWindow : Window
     private void WithEditor(Action action)
     {
         action();
-        Editor.Focus();
+        FocusEditor();
     }
 
     private void OnSearchWithKagi(object? sender, RoutedEventArgs e) => SearchWithKagi();

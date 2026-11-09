@@ -8,6 +8,9 @@ public static class ReferenceStrings
 {
     public const string ApplicationName = "Spartanpad";
 
+    /// <summary>String 37, the status bar's position, leading space included.</summary>
+    public static string LineColumn(int line, int column) => $" Ln {line}, Col {column}";
+
     // String table 1
     public const string CannotOpen = "Cannot open the {0} file.\n\nMake sure a disk is in the drive you specified.";
     public const string CannotFindCreate = "Cannot find the {0} file.\n\nDo you want to create a new file?";
