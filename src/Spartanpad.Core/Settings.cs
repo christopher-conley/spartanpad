@@ -109,6 +109,13 @@ public sealed class Settings
     [JsonPropertyName("menuEntry")]
     public bool? MenuEntry { get; set; }
 
+    /// <summary>
+    /// Whether documents open in tabs. Not a reference setting, and off until it is turned on in
+    /// Edit, Preferences: with it off the window holds one document at a time, as the reference does.
+    /// </summary>
+    [JsonPropertyName("tabs")]
+    public bool Tabs { get; set; }
+
     /// <summary>The reference decides by <c>LOCALE_IMEASURE</c>; .NET exposes the same fact per region.</summary>
     public static bool IsMetricRegion()
     {

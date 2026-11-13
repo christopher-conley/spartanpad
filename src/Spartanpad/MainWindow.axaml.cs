@@ -1,23 +1,29 @@
 using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
+using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Spartanpad.Core;
 using Spartanpad.Views;
 using EditorDocument = AvaloniaEdit.Document.TextDocument;
+using TextSearch = Spartanpad.Core.TextSearch;
 
 namespace Spartanpad;
 
 /// <summary>
 /// The Notepad window: menu, one editor, status bar. Behavior follows the local reference notes.
 /// The text lives in the editor control (AvaloniaEdit, which lays out only the visible lines);
-/// <see cref="TextDocument"/> holds the file, encoding, line ending and dirty state, so that a
-/// later tab strip can hold several of them.
+/// <see cref="TextDocument"/> holds the file, encoding, line ending and dirty state. The window
+/// keeps a list of <see cref="DocumentTab"/> and shows one of them in the editor. With the
+/// <c>tabs</c> setting off (the default) the list never grows past one and the window is the
+/// reference's; with it on, a strip above the editor switches between them.
 /// </summary>
 public partial class MainWindow : Window
 {
@@ -30,10 +36,14 @@ public partial class MainWindow : Window
     private readonly Settings _settings;
     private readonly string _settingsPath;
     private readonly CommandLine _commandLine;
-    private readonly TextDocument _document;
+    private readonly List<DocumentTab> _tabs = [];
+
+    /// <summary>The tab the editor is showing. Never null: the window always has at least one.</summary>
+    private DocumentTab _tab;
 
     private int _zoomPercent = Zoom.Default;
     private bool _loadingText;
+    private bool _syncingTabStrip;
     private bool _closeConfirmed;
     private bool _menuEntryOffered;
     private bool _altPointerGesture;
@@ -50,11 +60,14 @@ public partial class MainWindow : Window
         _settings = settings;
         _settingsPath = settingsPath;
         _commandLine = commandLine;
-        _document = new TextDocument(settings.DefaultEncoding);
 
         InitializeComponent();
         Icon = Icons.Window();
         ConfigureEditor();
+        _tab = new DocumentTab(new TextDocument(settings.DefaultEncoding), Editor.Document);
+        AddTab(_tab);
+        TabStrip.SelectionChanged += OnTabStripSelectionChanged;
+        TabStripBar.DoubleTapped += OnTabStripBarDoubleTapped;
 
         Editor.TextChanged += OnEditorTextChanged;
         Editor.TextArea.Caret.PositionChanged += OnEditorCaretMoved;
@@ -80,12 +93,17 @@ public partial class MainWindow : Window
         ApplyWordWrap(_settings.WordWrap);
         ApplyStatusBarVisibility(_settings.StatusBar);
         ApplyFont();
+        ApplyTabsSetting();
         UpdateTitle();
         UpdateStatusBar();
     }
 
-    /// <summary>The document behind the editor, for tests and a future tab strip.</summary>
-    public TextDocument Document => _document;
+    /// <summary>The document behind the editor: the active tab's.</summary>
+    public TextDocument Document => _tab.Document;
+
+    internal IReadOnlyList<DocumentTab> Tabs => _tabs;
+
+    internal DocumentTab ActiveTab => _tab;
 
     public Settings Settings => _settings;
 
@@ -123,11 +141,22 @@ public partial class MainWindow : Window
         _ = CloseAfterPromptAsync();
     }
 
+    // Every tab with unsaved changes gets the save prompt, shown in the editor while it is asked
+    // about. Cancel on any of them leaves the window open with whatever is still unsaved.
     private async Task CloseAfterPromptAsync()
     {
-        if (!await ConfirmDiscardAsync())
+        foreach (DocumentTab tab in _tabs.ToList())
         {
-            return;
+            if (!_tabs.Contains(tab) || !tab.Document.IsDirty)
+            {
+                continue;
+            }
+
+            ActivateTab(tab);
+            if (!await ConfirmDiscardAsync(tab))
+            {
+                return;
+            }
         }
 
         CloseFindDialog();
@@ -193,7 +222,7 @@ public partial class MainWindow : Window
         Bind("Ctrl+S", () => _ = SaveAsync());
         Bind("Ctrl+Shift+S", () => _ = SaveAsAsync());
         Bind("Ctrl+P", () => _ = PrintAsync());
-        Bind("Ctrl+W", Close);
+        Bind("Ctrl+W", () => _ = CloseTabAsync(_tab));
         Bind("F1", () => OpenUrl(Links.Help));
         Bind("F3", () => _ = FindNextAsync(forward: true));
         Bind("Shift+F3", () => _ = FindNextAsync(forward: false));
@@ -242,7 +271,7 @@ public partial class MainWindow : Window
 
     // ------------------------------------------------------------------ editor events
 
-    // Raised synchronously for every change, including the swap of documents in ShowDocument.
+    // Raised synchronously for every change, including the swap of documents in ShowTab.
     private void OnEditorTextChanged(object? sender, EventArgs e)
     {
         if (_loadingText)
@@ -250,7 +279,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        _document.NotifyChanged(Editor.Document.TextLength);
+        _tab.Document.NotifyChanged(Editor.Document.TextLength);
         UpdateTitle();
         UpdateStatusBar();
     }
@@ -265,7 +294,7 @@ public partial class MainWindow : Window
         if (e.Text is "\n" or "\r" or "\r\n")
         {
             e.Handled = true;
-            ReplaceSelection(_document.LineEnding.NewLine());
+            ReplaceSelection(_tab.Document.LineEnding.NewLine());
         }
     }
 
@@ -298,6 +327,15 @@ public partial class MainWindow : Window
         if (e.Key is Key.LeftAlt or Key.RightAlt)
         {
             _altPointerGesture = false;
+        }
+
+        // Ctrl+Tab and Ctrl+Shift+Tab walk the tabs. Taken here, on the way down, because a Tab
+        // key that reaches the focused control is keyboard navigation or a tab character.
+        if (e.Key == Key.Tab && e.KeyModifiers.HasFlag(KeyModifiers.Control) && !e.KeyModifiers.HasFlag(KeyModifiers.Alt) && _tabs.Count > 1)
+        {
+            e.Handled = true;
+            int step = e.KeyModifiers.HasFlag(KeyModifiers.Shift) ? _tabs.Count - 1 : 1;
+            ActivateTab(_tabs[(_tabs.IndexOf(_tab) + step) % _tabs.Count]);
         }
     }
 
@@ -349,14 +387,19 @@ public partial class MainWindow : Window
 
     // ------------------------------------------------------------------ title and status bar
 
-    private void UpdateTitle() => Title = _document.Title(AppName);
+    /// <summary>The title bar and the active tab's label: both carry the name and the unsaved mark.</summary>
+    private void UpdateTitle()
+    {
+        Title = _tab.Document.Title(AppName);
+        UpdateTabHeader(_tab);
+    }
 
     public void UpdateStatusBar()
     {
         UpdateLineColumn();
         StatusZoom.Text = Zoom.StatusText(_zoomPercent);
-        LineEndingButton.Content = _document.LineEnding.DisplayName();
-        EncodingButton.Content = _document.Encoding.DisplayName();
+        LineEndingButton.Content = _tab.Document.LineEnding.DisplayName();
+        EncodingButton.Content = _tab.Document.Encoding.DisplayName();
     }
 
     // The caret's Column counts characters from the line start (a tab is one), as the reference does.
@@ -407,14 +450,14 @@ public partial class MainWindow : Window
     /// </summary>
     public void ChangeLineEnding(LineEnding ending)
     {
-        if (ending == _document.LineEnding)
+        if (ending == _tab.Document.LineEnding)
         {
             return;
         }
 
         string text = Editor.Text;
         string converted = LineEndingExtensions.Normalize(text, ending);
-        _document.LineEnding = ending;
+        _tab.Document.LineEnding = ending;
         if (!ReferenceEquals(converted, text))
         {
             int caret = Editor.CaretOffset;
@@ -423,7 +466,7 @@ public partial class MainWindow : Window
             Editor.CaretOffset = Math.Min(caret, converted.Length);
         }
 
-        _document.NotifyChanged(Editor.Document.TextLength);
+        _tab.Document.NotifyChanged(Editor.Document.TextLength);
         UpdateTitle();
         UpdateStatusBar();
     }
@@ -435,18 +478,18 @@ public partial class MainWindow : Window
     /// </summary>
     private async Task ChangeEncodingAsync(TextEncodingKind kind)
     {
-        if (kind == _document.Encoding)
+        if (kind == _tab.Document.Encoding)
         {
             return;
         }
 
-        if (!_document.IsDirty && _document.FilePath is string path)
+        if (!_tab.Document.IsDirty && _tab.Document.FilePath is string path)
         {
             await OpenPathAsync(path, kind, createIfMissing: false);
             return;
         }
 
-        _document.Encoding = kind;
+        _tab.Document.Encoding = kind;
         UpdateStatusBar();
     }
 
@@ -497,7 +540,7 @@ public partial class MainWindow : Window
     private void ApplyWordWrap(bool wrap)
     {
         Editor.WordWrap = wrap;
-        Editor.HorizontalScrollBarVisibility = wrap ? Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled : Avalonia.Controls.Primitives.ScrollBarVisibility.Auto;
+        Editor.HorizontalScrollBarVisibility = wrap ? ScrollBarVisibility.Disabled : ScrollBarVisibility.Auto;
         WordWrapItem.IsChecked = wrap;
     }
 
@@ -511,17 +554,53 @@ public partial class MainWindow : Window
     // ------------------------------------------------------------------ loading text into the editor
 
     /// <summary>
-    /// Puts <paramref name="text"/> in the editor as a fresh document, with an empty undo stack so
-    /// the previous document cannot be undone back, and the caret at the start.
+    /// Gives <paramref name="tab"/> a fresh text document, with an empty undo stack so the previous
+    /// text cannot be undone back, and the caret at <paramref name="caretOffset"/>. The editor
+    /// follows when the tab is the one it is showing.
     /// </summary>
-    private void ShowDocument(string text)
+    private void SetTabText(DocumentTab tab, EditorDocument text, int caretOffset = 0)
     {
+        tab.Text = text;
+        tab.ResetView(caretOffset);
+        if (ReferenceEquals(tab, _tab))
+        {
+            ShowTab();
+        }
+        else
+        {
+            UpdateTabHeader(tab);
+        }
+    }
+
+    /// <summary>
+    /// Puts the active tab in the editor: its text (and with it its undo history), then the caret,
+    /// selection and scroll position it had when it was last shown.
+    /// </summary>
+    private void ShowTab()
+    {
+        DocumentTab tab = _tab;
         _loadingText = true;
         try
         {
-            Editor.Document = new EditorDocument(text);
-            Editor.CaretOffset = 0;
-            Editor.TextArea.ClearSelection();
+            Editor.Document = tab.Text;
+            int length = tab.Text.TextLength;
+            int caret = Math.Clamp(tab.CaretOffset, 0, length);
+            int start = Math.Clamp(tab.SelectionStart, 0, length);
+            int selected = Math.Clamp(tab.SelectionLength, 0, length - start);
+            if (selected > 0)
+            {
+                Editor.Select(start, selected);
+            }
+            else
+            {
+                Editor.TextArea.ClearSelection();
+            }
+
+            Editor.CaretOffset = caret;
+            // Set on the text view, which is what the editor's scroll viewer reads; a value set
+            // here, before the next layout pass, is kept by it. The editor's own
+            // ScrollToVerticalOffset left the offset at 0 when tried (AvaloniaEdit 12.0.0, headless).
+            ((ILogicalScrollable)Editor.TextArea.TextView).Offset = tab.ScrollOffset;
         }
         finally
         {
@@ -533,37 +612,292 @@ public partial class MainWindow : Window
         UpdateStatusBar();
     }
 
+    /// <summary>Remembers where the editor is in the active tab, before it shows another one.</summary>
+    private void RememberView()
+    {
+        _tab.CaretOffset = Editor.CaretOffset;
+        _tab.SelectionStart = Editor.SelectionStart;
+        _tab.SelectionLength = Editor.SelectionLength;
+        _tab.ScrollOffset = ((ILogicalScrollable)Editor.TextArea.TextView).Offset;
+    }
+
+    // ------------------------------------------------------------------ tabs
+
+    /// <summary>
+    /// True while New, Open and a dropped file make a tab of their own. With the setting off they
+    /// replace the current document after the save prompt, as the reference does, and that holds
+    /// for tabs left open from before it was turned off too.
+    /// </summary>
+    private bool TabsOn => _settings.Tabs;
+
+    /// <summary>
+    /// The strip shows while the setting is on, and while more than one tab is open: turning the
+    /// setting off closes nothing, so the tabs already open stay reachable until they are closed.
+    /// </summary>
+    private void ApplyTabsSetting()
+    {
+        TabStripBar.IsVisible = TabsOn || _tabs.Count > 1;
+    }
+
+    /// <summary>Adds <paramref name="tab"/> at the end of the strip. Does not show it; see <see cref="ActivateTab"/>.</summary>
+    private void AddTab(DocumentTab tab)
+    {
+        var label = new TextBlock { VerticalAlignment = VerticalAlignment.Center };
+        var close = new Button
+        {
+            Content = "✕",
+            FontSize = 9,
+            Padding = new Thickness(4, 2),
+            Margin = new Thickness(8, 0, 0, 0),
+            MinWidth = 0,
+            MinHeight = 0,
+            Focusable = false,
+            Background = Brushes.Transparent,
+            BorderThickness = new Thickness(0),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        ToolTip.SetTip(close, "Close (Ctrl+W)");
+        close.Click += (_, _) => _ = CloseTabAsync(tab);
+        var panel = new StackPanel { Orientation = Orientation.Horizontal };
+        panel.Children.Add(label);
+        panel.Children.Add(close);
+        // The theme's tab headers are sized for a page of settings (24 px text, 48 px tall); these
+        // sit over a text editor, at the status bar's scale.
+        tab.Header = new TabStripItem
+        {
+            Content = panel,
+            Tag = tab,
+            FontSize = 12,
+            MinHeight = 28,
+            Padding = new Thickness(10, 0, 4, 0),
+        };
+        tab.HeaderText = label;
+        // The middle button closes the tab it is pressed on, wherever on the header that is, and
+        // without the tab having to be the one on screen.
+        TabStripItem header = tab.Header;
+        header.AddHandler(PointerPressedEvent, (_, e) =>
+        {
+            if (e.GetCurrentPoint(header).Properties.PointerUpdateKind == PointerUpdateKind.MiddleButtonPressed)
+            {
+                e.Handled = true;
+                _ = CloseTabAsync(tab);
+            }
+        }, RoutingStrategies.Bubble, handledEventsToo: true);
+        UpdateTabHeader(tab);
+
+        _tabs.Add(tab);
+        _syncingTabStrip = true;
+        try
+        {
+            TabStrip.Items.Add(tab.Header);
+            // The strip must not pick a tab by itself: which one the editor shows is _tab.
+            TabStrip.SelectedItem = _tab.Header;
+        }
+        finally
+        {
+            _syncingTabStrip = false;
+        }
+
+        ApplyTabsSetting();
+    }
+
+    private static void UpdateTabHeader(DocumentTab tab)
+    {
+        if (tab.Header is null || tab.HeaderText is null)
+        {
+            return;
+        }
+
+        tab.HeaderText.Text = tab.Caption;
+        ToolTip.SetTip(tab.Header, tab.Document.FilePath ?? TextDocument.UntitledName);
+    }
+
+    /// <summary>Shows <paramref name="tab"/> in the editor, remembering where the editor was in the one it leaves.</summary>
+    internal void ActivateTab(DocumentTab tab)
+    {
+        if (!_tabs.Contains(tab))
+        {
+            return;
+        }
+
+        if (!ReferenceEquals(tab, _tab))
+        {
+            if (_tabs.Contains(_tab))
+            {
+                RememberView();
+            }
+
+            _tab = tab;
+            ShowTab();
+        }
+
+        _syncingTabStrip = true;
+        try
+        {
+            TabStrip.SelectedItem = tab.Header;
+        }
+        finally
+        {
+            _syncingTabStrip = false;
+        }
+
+        FocusEditor();
+    }
+
+    private void OnTabStripSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_syncingTabStrip || !ReferenceEquals(e.Source, TabStrip))
+        {
+            return;
+        }
+
+        if (TabStrip.SelectedItem is TabStripItem { Tag: DocumentTab tab })
+        {
+            ActivateTab(tab);
+            // A click gives the keyboard to the header it landed on, after this handler has run.
+            Dispatcher.UIThread.Post(FocusEditor, DispatcherPriority.Input);
+        }
+    }
+
+    // A double-click on the strip beside the tabs is New. On a tab it is two clicks on that tab,
+    // and with tabs turned off (the strip then only shows what is still open) it makes nothing.
+    private void OnTabStripBarDoubleTapped(object? sender, TappedEventArgs e)
+    {
+        if (!TabsOn || (e.Source as Visual)?.FindAncestorOfType<TabStripItem>(includeSelf: true) is not null)
+        {
+            return;
+        }
+
+        e.Handled = true;
+        NewTab();
+    }
+
+    /// <summary>A new Untitled tab, shown at once: what New does while tabs are on.</summary>
+    internal DocumentTab NewTab()
+    {
+        var tab = new DocumentTab(new TextDocument(_settings.DefaultEncoding), new EditorDocument());
+        AddTab(tab);
+        ActivateTab(tab);
+        return tab;
+    }
+
+    /// <summary>
+    /// Closes <paramref name="tab"/> after the save prompt (Ctrl+W, or the tab's own button). The
+    /// last tab is the window: closing it closes the window, by the same path as Exit.
+    /// </summary>
+    internal async Task CloseTabAsync(DocumentTab tab)
+    {
+        if (!_tabs.Contains(tab))
+        {
+            return;
+        }
+
+        if (_tabs.Count == 1)
+        {
+            Close();
+            return;
+        }
+
+        if (tab.Document.IsDirty)
+        {
+            ActivateTab(tab);
+            if (!await ConfirmDiscardAsync(tab) || !_tabs.Contains(tab))
+            {
+                return;
+            }
+        }
+
+        if (_tabs.Count == 1)
+        {
+            Close();
+            return;
+        }
+
+        RemoveTab(tab);
+    }
+
+    // Takes a tab out of the strip; when it was the one on screen, the one after it (or, for the
+    // last, the one before it) takes its place.
+    private void RemoveTab(DocumentTab tab)
+    {
+        int index = _tabs.IndexOf(tab);
+        _tabs.RemoveAt(index);
+        _syncingTabStrip = true;
+        try
+        {
+            TabStrip.Items.Remove(tab.Header);
+        }
+        finally
+        {
+            _syncingTabStrip = false;
+        }
+
+        if (ReferenceEquals(tab, _tab))
+        {
+            _tab = _tabs[Math.Min(index, _tabs.Count - 1)];
+            ShowTab();
+        }
+
+        ActivateTab(_tab);
+        ApplyTabsSetting();
+    }
+
+    private async Task PreferencesAsync()
+    {
+        bool changed = await new PreferencesDialog(_settings).ShowDialog<bool>(this);
+        if (changed)
+        {
+            ApplyTabsSetting();
+            SaveSettings();
+        }
+
+        FocusEditor();
+    }
+
     // ------------------------------------------------------------------ file commands
 
     /// <summary>The save prompt (§7): true when the caller may go on, false on Cancel or a failed save.</summary>
-    public async Task<bool> ConfirmDiscardAsync()
+    public Task<bool> ConfirmDiscardAsync() => ConfirmDiscardAsync(_tab);
+
+    // Every file command names the tab it works on and keeps to it across its dialogs: a file
+    // picker does not stop the person from switching tabs on every platform, and a save must
+    // write the text it was asked about, not the text that is on screen when the dialog closes.
+    internal async Task<bool> ConfirmDiscardAsync(DocumentTab tab)
     {
-        if (!_document.IsDirty)
+        if (!tab.Document.IsDirty)
         {
             return true;
         }
 
-        string name = _document.FilePath ?? TextDocument.UntitledName;
+        string name = tab.Document.FilePath ?? TextDocument.UntitledName;
         string? choice = await MessageDialog.ShowAsync(this, AppName,
             string.Format(ReferenceStrings.SaveChangesQuestion, name),
             ReferenceStrings.SaveButton, ReferenceStrings.DontSaveButton, ReferenceStrings.CancelButton);
         return choice switch
         {
-            ReferenceStrings.SaveButton => await SaveAsync(),
+            ReferenceStrings.SaveButton => await SaveAsync(tab),
             ReferenceStrings.DontSaveButton => true,
             _ => false,
         };
     }
 
+    /// <summary>New: a tab of its own while tabs are on; otherwise the current document is replaced after the save prompt.</summary>
     public async Task NewAsync()
     {
-        if (!await ConfirmDiscardAsync())
+        if (TabsOn)
+        {
+            NewTab();
+            return;
+        }
+
+        DocumentTab tab = _tab;
+        if (!await ConfirmDiscardAsync(tab))
         {
             return;
         }
 
-        _document.Reset(_settings.DefaultEncoding);
-        ShowDocument(string.Empty);
+        tab.Document.Reset(_settings.DefaultEncoding);
+        SetTabText(tab, new EditorDocument());
     }
 
     private void NewWindow()
@@ -592,7 +926,8 @@ public partial class MainWindow : Window
 
     public async Task OpenAsync()
     {
-        if (!await ConfirmDiscardAsync())
+        DocumentTab tab = _tab;
+        if (!TabsOn && !await ConfirmDiscardAsync(tab))
         {
             return;
         }
@@ -602,7 +937,7 @@ public partial class MainWindow : Window
             Title = ReferenceStrings.OpenTitle,
             AllowMultiple = false,
             FileTypeFilter = FileTypes,
-            SuggestedStartLocation = await SuggestedFolderAsync(),
+            SuggestedStartLocation = await SuggestedFolderAsync(tab),
         });
         if (files.Count == 0)
         {
@@ -615,19 +950,75 @@ public partial class MainWindow : Window
             return;
         }
 
-        await OpenPathAsync(path, null, createIfMissing: false);
+        await OpenChosenAsync(tab, path, null);
     }
 
     private async Task OpenAfterPromptAsync(string path, TextEncodingKind? forced)
     {
-        if (await ConfirmDiscardAsync())
+        DocumentTab tab = _tab;
+        if (TabsOn || await ConfirmDiscardAsync(tab))
         {
-            await OpenPathAsync(path, forced, createIfMissing: false);
+            await OpenChosenAsync(tab, path, forced);
         }
     }
 
-    /// <summary>Loads <paramref name="path"/> into the editor; reports the reference's errors.</summary>
-    public async Task<bool> OpenPathAsync(string path, TextEncodingKind? forced, bool createIfMissing)
+    /// <summary>
+    /// Opens a file the person picked or dropped. With tabs off it replaces the document in
+    /// <paramref name="current"/>, which the caller has already asked about. With tabs on it gets
+    /// a tab of its own, except that a file which is already open is shown where it is, and an
+    /// Untitled tab nobody has typed in is used up rather than left behind. A file that cannot be
+    /// read leaves no tab.
+    /// </summary>
+    internal async Task<bool> OpenChosenAsync(DocumentTab current, string path, TextEncodingKind? forced)
+    {
+        if (!TabsOn)
+        {
+            return await LoadIntoTabAsync(current, path, forced, createIfMissing: false);
+        }
+
+        if (FindTabFor(path) is DocumentTab open)
+        {
+            ActivateTab(open);
+            return true;
+        }
+
+        if (_tab.IsPristine)
+        {
+            return await LoadIntoTabAsync(_tab, path, forced, createIfMissing: false);
+        }
+
+        var tab = new DocumentTab(new TextDocument(_settings.DefaultEncoding), new EditorDocument());
+        if (!await LoadIntoTabAsync(tab, path, forced, createIfMissing: false))
+        {
+            return false;
+        }
+
+        AddTab(tab);
+        ActivateTab(tab);
+        return true;
+    }
+
+    private DocumentTab? FindTabFor(string path)
+    {
+        string full;
+        try
+        {
+            full = Path.GetFullPath(path);
+        }
+        catch (Exception e) when (e is ArgumentException or NotSupportedException or IOException)
+        {
+            return null;
+        }
+
+        StringComparison comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        return _tabs.FirstOrDefault(t => string.Equals(t.Document.FilePath, full, comparison));
+    }
+
+    /// <summary>Loads <paramref name="path"/> into the current tab; reports the reference's errors.</summary>
+    public Task<bool> OpenPathAsync(string path, TextEncodingKind? forced, bool createIfMissing) =>
+        LoadIntoTabAsync(_tab, path, forced, createIfMissing);
+
+    private async Task<bool> LoadIntoTabAsync(DocumentTab tab, string path, TextEncodingKind? forced, bool createIfMissing)
     {
         try
         {
@@ -661,16 +1052,18 @@ public partial class MainWindow : Window
                 File.WriteAllBytes(path, []);
             }
 
-            ShowDocument(_document.Load(path, forced));
-
-            if (_document.IsLogFile)
+            var text = new EditorDocument(tab.Document.Load(path, forced));
+            int caret = 0;
+            if (tab.Document.IsLogFile)
             {
                 // Part of what was opened, not an edit to undo; the document is dirty, as in the reference.
-                Editor.Document.Insert(Editor.Document.TextLength, _document.LogStamp(TimeDateStamp.Format(DateTime.Now)));
-                Editor.Document.UndoStack.ClearAll();
-                Editor.CaretOffset = Editor.Document.TextLength;
+                text.Insert(text.TextLength, tab.Document.LogStamp(TimeDateStamp.Format(DateTime.Now)));
+                text.UndoStack.ClearAll();
+                tab.Document.NotifyChanged(text.TextLength);
+                caret = text.TextLength;
             }
 
+            SetTabText(tab, text, caret);
             return true;
         }
         catch (FileTooLargeException)
@@ -690,26 +1083,30 @@ public partial class MainWindow : Window
     }
 
     /// <summary>Save: straight to the file, or Save As for an Untitled document. True when written.</summary>
-    public async Task<bool> SaveAsync()
+    public Task<bool> SaveAsync() => SaveAsync(_tab);
+
+    internal async Task<bool> SaveAsync(DocumentTab tab)
     {
-        if (_document.FilePath is null)
+        if (tab.Document.FilePath is null)
         {
-            return await SaveAsAsync();
+            return await SaveAsAsync(tab);
         }
 
-        return await WriteAsync(_document.FilePath, _document.Encoding);
+        return await WriteAsync(tab, tab.Document.FilePath, tab.Document.Encoding);
     }
 
-    public async Task<bool> SaveAsAsync()
+    public Task<bool> SaveAsAsync() => SaveAsAsync(_tab);
+
+    internal async Task<bool> SaveAsAsync(DocumentTab tab)
     {
         IStorageFile? file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
             Title = ReferenceStrings.SaveAsTitle,
-            SuggestedFileName = _document.FilePath is null ? "Untitled.txt" : _document.DisplayName,
+            SuggestedFileName = tab.Document.FilePath is null ? "Untitled.txt" : tab.Document.DisplayName,
             DefaultExtension = "txt",
             FileTypeChoices = FileTypes,
             ShowOverwritePrompt = true,
-            SuggestedStartLocation = await SuggestedFolderAsync(),
+            SuggestedStartLocation = await SuggestedFolderAsync(tab),
         });
         if (file is null)
         {
@@ -722,14 +1119,14 @@ public partial class MainWindow : Window
             return false;
         }
 
-        return await WriteAsync(path, _document.Encoding);
+        return await WriteAsync(tab, path, tab.Document.Encoding);
     }
 
-    private async Task<bool> WriteAsync(string path, TextEncodingKind encoding)
+    // The text is the tab's own, read after the last dialog: whatever the editor shows by then.
+    private async Task<bool> WriteAsync(DocumentTab tab, string path, TextEncodingKind encoding)
     {
         bool allowLossy = false;
-        string text = Editor.Text;
-        if (encoding == TextEncodingKind.Ansi && !TextCodec.CanEncodeAnsi(text))
+        if (encoding == TextEncodingKind.Ansi && !TextCodec.CanEncodeAnsi(tab.Text.Text))
         {
             string? answer = await MessageDialog.ShowAsync(this, AppName, string.Format(ReferenceStrings.AnsiLossWarning, path), "OK", "Cancel");
             if (answer != "OK")
@@ -742,7 +1139,8 @@ public partial class MainWindow : Window
 
         try
         {
-            _document.Save(path, text, encoding, allowLossy);
+            tab.Document.Save(path, tab.Text.Text, encoding, allowLossy);
+            UpdateTabHeader(tab);
             UpdateTitle();
             UpdateStatusBar();
         }
@@ -800,9 +1198,9 @@ public partial class MainWindow : Window
         SaveSettings();
     }
 
-    private async Task<IStorageFolder?> SuggestedFolderAsync()
+    private async Task<IStorageFolder?> SuggestedFolderAsync(DocumentTab tab)
     {
-        string? directory = _document.FilePath is null ? null : Path.GetDirectoryName(_document.FilePath);
+        string? directory = tab.Document.FilePath is null ? null : Path.GetDirectoryName(tab.Document.FilePath);
         if (directory is null)
         {
             return null;
@@ -1226,6 +1624,8 @@ public partial class MainWindow : Window
     private void OnSelectAll(object? sender, RoutedEventArgs e) => WithEditor(Editor.SelectAll);
 
     private void OnTimeDate(object? sender, RoutedEventArgs e) => InsertTimeDate();
+
+    private void OnPreferences(object? sender, RoutedEventArgs e) => _ = PreferencesAsync();
 
     private void OnWordWrap(object? sender, RoutedEventArgs e) => ToggleWordWrap();
 

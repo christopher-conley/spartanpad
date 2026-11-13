@@ -235,4 +235,23 @@ public class SettingsTests
         Assert.Equal(TextEncodingKind.Utf8, s.DefaultEncoding);
         Assert.Equal(100, s.PointSizeTenths);
     }
+
+    /// <summary>Tabs are Spartanpad's own setting: off unless asked for, including in a file written before it existed.</summary>
+    [Fact]
+    public void TabsAreOffUntilTurnedOnAndTheAnswerIsKept()
+    {
+        using var dir = new TempDir();
+        string path = dir.File("settings.json");
+        Assert.False(new Settings().Tabs);
+
+        File.WriteAllText(path, "{ \"fWrap\": true }");
+        Settings old = SettingsStore.Load(path);
+        Assert.True(old.WordWrap);
+        Assert.False(old.Tabs);
+
+        old.Tabs = true;
+        SettingsStore.Save(path, old);
+        Assert.Contains("\"tabs\": true", File.ReadAllText(path));
+        Assert.True(SettingsStore.Load(path).Tabs);
+    }
 }

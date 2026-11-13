@@ -60,6 +60,16 @@ Print (and `/P`, `/PT`) shows a message saying it's not implemented yet.
   1 GB log opened in 12 s and peaked at 9 GB), so a file near the limit needs a desktop, not a
   default 4 GB Windows Sandbox.
 - Undo is multi-level; Notepad's was a single toggle.
+- Tabbed documents, for those who want them: off by default, turned on under Edit > Preferences
+  (the one menu entry Notepad didn't have, placed last so nothing else moves; the answer is kept
+  as `tabs` in `settings.json`). With tabs on, New and Open put each document in a tab of its
+  own, an untouched Untitled tab is reused, and a file that's already open is shown where it is.
+  A double-click on the strip beside the tabs also makes a new one. Ctrl+Tab and Ctrl+Shift+Tab
+  switch; Ctrl+W, a tab's close button or a middle-click on the tab closes it after the usual
+  save prompt, and closing the last tab closes the window. Each tab keeps its own undo history,
+  caret and scroll position; closing the window asks about every tab with unsaved changes.
+  Turning tabs off closes nothing: the open tabs stay until you close them, and no new ones are
+  made.
 - Column selection: Alt+drag, or Alt+Shift with the arrow keys, selects a box; typing or pasting
   then edits every selected line.
 - The theme follows the operating system; Notepad was always light.
@@ -122,7 +132,8 @@ tests/                 xunit tests for Core and headless UI tests for the window
 scripts/               the Windows Sandbox configuration
 ```
 
-The document model is separate from the window so that a tabbed interface can later be implemented.
+The document model is separate from the window: the window keeps a list of open documents and one
+editor that shows the current one, which is all the tabbed interface is.
 
 ## License
 

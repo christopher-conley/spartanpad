@@ -1,0 +1,21 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Spartanpad.Views.PreferencesDialog"
+        Title="Preferences"
+        SizeToContent="WidthAndHeight"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False">
+  <StackPanel Margin="12" Width="420" Spacing="10">
+    <StackPanel Spacing="2">
+      <CheckBox Name="Tabs" Content="Tabbed documents" />
+      <TextBlock FontSize="12" Opacity="0.8" TextWrapping="Wrap" Margin="28,0,0,0"
+                 Text="New and Open put each document in a tab of its own; Ctrl+Tab switches between them and Ctrl+W closes the current one. Turned off, the window holds one document at a time, as Notepad does. Tabs that are already open stay until you close them." />
+    </StackPanel>
+
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+      <Button Content="OK" MinWidth="88" IsDefault="True" Click="OnOk" />
+      <Button Content="Cancel" MinWidth="88" IsCancel="True" Click="OnCancel" />
+    </StackPanel>
+  </StackPanel>
+</Window>

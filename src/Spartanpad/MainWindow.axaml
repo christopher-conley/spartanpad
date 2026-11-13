@@ -36,6 +36,9 @@
         <Separator />
         <MenuItem Header="Select _All" InputGesture="Ctrl+A" Click="OnSelectAll" />
         <MenuItem Header="Time/_Date" InputGesture="F5" Click="OnTimeDate" />
+        <!-- Not in the reference, so it goes last, where it moves nothing the reference has. -->
+        <Separator />
+        <MenuItem Name="PreferencesItem" Header="Pr_eferences..." Click="OnPreferences" />
       </MenuItem>
       <MenuItem Header="F_ormat">
         <MenuItem Name="WordWrapItem" Header="_Word Wrap" ToggleType="CheckBox" Click="OnWordWrap" />
@@ -56,6 +59,14 @@
         <MenuItem Header="_About Spartanpad" Click="OnAbout" />
       </MenuItem>
     </Menu>
+
+    <!-- The tab strip. Hidden unless tabs are turned on in Preferences (or some are still open
+         after turning them off); its items are made in code, one per open document. -->
+    <Border DockPanel.Dock="Top" Name="TabStripBar" IsVisible="False"
+            Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+            BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}" BorderThickness="0,0,0,1">
+      <TabStrip Name="TabStrip" />
+    </Border>
 
     <!-- The five status bar parts of the reference, right-aligned at its widths:
          message | Ln, Col (140) | zoom (50) | line ending (120) | encoding (120). -->
